@@ -1,0 +1,11 @@
+FROM node:20-bookworm-slim
+WORKDIR /app/backend
+COPY backend/package.json ./package.json
+RUN npm install --omit=dev
+COPY backend/src ./src
+COPY backend/data ./data
+COPY carrier-database.html /app/carrier-database.html
+EXPOSE 8080
+ENV PORT=8080
+ENV HOST=0.0.0.0
+CMD ["node", "src/server.js"]

@@ -1,0 +1,19 @@
+{
+  "name": "carrier-dashboard-backend",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Backend foundation for the Circle Logistics carrier dashboard.",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "^7.11.0",
+    "@google-cloud/storage": "^7.16.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "check": "node --check src/server.js && node --check src/store.js && node --check src/offline-html.js && node --check src/config.js && node --check src/auth.js"
+  }
+}
