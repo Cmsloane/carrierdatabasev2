@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 sync_from_netlify.py --status)",
+      "Bash(curl -s https://carrierdatabasev2.netlify.app/api/health)",
+      "Bash(curl -s https://carrierdatabasev2.netlify.app/api/bootstrap)",
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f''''Carriers: {len\\(d[\"\"carriers\"\"]\\)}''''\\); print\\(f''''Loads: {len\\(d[\"\"loadsData\"\"]\\)}''''\\); print\\(f''''Revision: {d[\"\"meta\"\"][\"\"revision\"\"]}''''\\)\")",
+      "Bash(npm run:*)",
+      "Bash(npx netlify:*)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(where npx:*)",
+      "Bash(where node:*)",
+      "Bash(where netlify:*)"
+    ]
+  }
+}

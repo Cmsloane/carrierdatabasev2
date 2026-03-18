@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Netlify Dev (full stack)",
+      "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
+      "runtimeArgs": ["C:\\Users\\admin\\AppData\\Local\\npm-cache\\_npx\\90d26507e643fcc0\\node_modules\\netlify\\bin\\run.js", "dev"],
+      "port": 8888
+    },
+    {
+      "name": "Static HTML server",
+      "runtimeExecutable": "C:\\Users\\admin\\AppData\\Local\\Python\\bin\\python3.exe",
+      "runtimeArgs": ["-m", "http.server", "3000"],
+      "port": 3000
+    }
+  ]
+}

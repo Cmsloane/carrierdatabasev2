@@ -1,0 +1,623 @@
+const DEFAULT_QUERY = 'newer_than:60d ("rate confirmation" OR "rate con" OR "carrier confirmation" OR "load tender") -in:trash -in:spam';
+const DEFAULT_MAX_RESULTS = 100;
+const DEFAULT_IGNORE_DOMAINS = ['circledelivers.com', 'circlelogistics.com'];
+
+function nowIso() {
+  return new Date().toISOString().slice(0, 19);
+}
+
+function normalizeList(value) {
+  return String(value || '')
+    .split(/[,\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function parseEmails(value) {
+  const matches = String(value || '').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
+  return [...new Set(matches.map(normalizeEmail))];
+}
+
+function parsePhones(value) {
+  const matches = String(value || '').match(/(?:\+?1[\s.-]*)?(?:\(?\d{3}\)?[\s.-]*)\d{3}[\s.-]*\d{4}(?:\s*(?:x|ext\.?)\s*\d+)?/gi) || [];
+  return [...new Set(matches.map((match) => match.replace(/\s+/g, ' ').trim()))];
+}
+
+function safeHeaderMap(payload) {
+  const headers = payload?.payload?.headers || [];
+  return headers.reduce((acc, header) => {
+    const key = String(header?.name || '').toLowerCase();
+    if (!key) return acc;
+    acc[key] = header?.value || '';
+    return acc;
+  }, {});
+}
+
+function decodeBase64Url(value) {
+  if (!value) return '';
+  const normalized = String(value).replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4 || 4)) % 4);
+  return Buffer.from(padded, 'base64').toString('utf8');
+}
+
+function stripHtml(value) {
+  return String(value || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\r/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
+function collectMessageText(part, bucket) {
+  if (!part) return;
+  const mimeType = String(part.mimeType || '').toLowerCase();
+  const data = part.body?.data ? decodeBase64Url(part.body.data) : '';
+  if (data) {
+    if (mimeType === 'text/plain') bucket.plain.push(data);
+    else if (mimeType === 'text/html') bucket.html.push(data);
+  }
+  (part.parts || []).forEach((child) => collectMessageText(child, bucket));
+}
+
+function extractMessageText(payload) {
+  const bucket = { plain: [], html: [] };
+  collectMessageText(payload?.payload, bucket);
+  const plain = bucket.plain.join('\n').trim();
+  if (plain) return plain;
+  return stripHtml(bucket.html.join('\n'));
+}
+
+function cleanText(value) {
+  return String(value || '')
+    .replace(/\r/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function toIsoDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString();
+}
+
+function fmtMoney(value) {
+  if (value == null || Number.isNaN(Number(value))) return '';
+  return '$' + Number(value).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
+function ensureGmailSource(sources) {
+  const next = Array.isArray(sources) ? sources.slice() : [];
+  const existing = next.find((entry) => String(entry?.type || '').toLowerCase() === 'gmail');
+  if (existing) {
+    if (!existing.label) existing.label = 'Gmail · Rate confirmations';
+    return next;
+  }
+  next.push({ type: 'gmail', label: 'Gmail · Rate confirmations' });
+  return next;
+}
+
+function gmailConfig() {
+  return {
+    clientId: process.env.GMAIL_CLIENT_ID || '',
+    clientSecret: process.env.GMAIL_CLIENT_SECRET || '',
+    refreshToken: process.env.GMAIL_REFRESH_TOKEN || '',
+    userEmail: process.env.GMAIL_USER_EMAIL || 'me',
+    query: process.env.GMAIL_SYNC_QUERY || DEFAULT_QUERY,
+    labelIds: normalizeList(process.env.GMAIL_SYNC_LABEL_IDS || ''),
+    maxResults: Math.max(1, Math.min(Number(process.env.GMAIL_SYNC_MAX_RESULTS || DEFAULT_MAX_RESULTS), 500)),
+    ignoreDomains: [...new Set(DEFAULT_IGNORE_DOMAINS.concat(normalizeList(process.env.GMAIL_SYNC_IGNORE_DOMAINS || '')).map((value) => value.toLowerCase()))]
+  };
+}
+
+export function gmailSyncConfigStatus() {
+  const config = gmailConfig();
+  const configured = Boolean(config.clientId && config.clientSecret && config.refreshToken);
+  return {
+    configured,
+    userEmail: config.userEmail || 'me',
+    query: config.query,
+    labelIds: config.labelIds,
+    maxResults: config.maxResults,
+    ignoreDomains: config.ignoreDomains
+  };
+}
+
+export function zapierSyncConfigStatus() {
+  return {
+    configured: Boolean(process.env.ZAPIER_SYNC_SECRET || process.env.GMAIL_SYNC_SECRET),
+    endpointPath: '/api/zapier/rate-confirmation',
+    secretHeader: 'x-zapier-secret'
+  };
+}
+
+async function fetchAccessToken(config) {
+  const body = new URLSearchParams({
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
+    refresh_token: config.refreshToken,
+    grant_type: 'refresh_token'
+  });
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Gmail token refresh failed (${response.status}): ${text.slice(0, 240)}`);
+  }
+  const payload = await response.json();
+  if (!payload.access_token) {
+    throw new Error('Gmail token refresh did not return an access token.');
+  }
+  return payload.access_token;
+}
+
+async function gmailRequest(pathname, accessToken, params) {
+  const url = new URL(`https://gmail.googleapis.com/gmail/v1/users/me/${pathname}`);
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (Array.isArray(value)) {
+      value.forEach((item) => url.searchParams.append(key, item));
+      return;
+    }
+    if (value !== undefined && value !== null && value !== '') {
+      url.searchParams.set(key, String(value));
+    }
+  });
+  const response = await fetch(url, {
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      accept: 'application/json'
+    }
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Gmail API request failed (${response.status}): ${text.slice(0, 240)}`);
+  }
+  return response.json();
+}
+
+function buildCarrierEmailIndex(carriers) {
+  const emailToCarrierIndexes = new Map();
+  (carriers || []).forEach((carrier, index) => {
+    parseEmails(carrier?.email || '').forEach((email) => {
+      if (!emailToCarrierIndexes.has(email)) emailToCarrierIndexes.set(email, []);
+      emailToCarrierIndexes.get(email).push(index);
+    });
+  });
+  return emailToCarrierIndexes;
+}
+
+function shouldIgnoreEmail(email, ignoreDomains) {
+  const normalized = normalizeEmail(email);
+  const domain = normalized.split('@')[1] || '';
+  return !normalized || ignoreDomains.includes(domain);
+}
+
+function parseDisplayName(fromHeader) {
+  const value = String(fromHeader || '').trim();
+  if (!value) return '';
+  const cleaned = value.replace(/<[^>]+>/g, '').replace(/["']/g, '').trim();
+  if (!cleaned || /rate confirmation|dispatch|broker|logistics|team|support|operations/i.test(cleaned)) return '';
+  return cleaned;
+}
+
+function extractLoadId(text) {
+  const patterns = [
+    /\bLoad(?:\s*(?:ID|#|Number|No\.?))?\s*[:#-]?\s*([A-Z0-9-]{5,})\b/i,
+    /\bOrder(?:\s*(?:#|No\.?))?\s*[:#-]?\s*([A-Z0-9-]{5,})\b/i,
+    /\bConfirmation(?:\s*(?:#|No\.?))?\s*[:#-]?\s*([A-Z0-9-]{5,})\b/i,
+    /\b(2\d{6})\b/
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return match[1].trim();
+  }
+  return '';
+}
+
+function extractMoney(text) {
+  const lines = String(text || '').split('\n').map((line) => line.trim()).filter(Boolean);
+  for (const line of lines) {
+    if (!/\b(?:rate|all[\s-]?in|linehaul|line haul|agreed rate|amount due|total rate)\b/i.test(line)) continue;
+    if (/rate confirmation/i.test(line) && !/\$/.test(line)) continue;
+    const dollarMatch = line.match(/\$([\d,]+(?:\.\d{2})?)/);
+    if (dollarMatch?.[1]) {
+      const value = Number(String(dollarMatch[1]).replace(/,/g, ''));
+      if (!Number.isNaN(value) && value > 0) return value;
+    }
+    if (/:\s*[\d,]+(?:\.\d{2})?\b/.test(line) && !/rate confirmation/i.test(line)) {
+      const numberMatch = line.match(/:\s*([\d,]+(?:\.\d{2})?)\b/);
+      if (numberMatch?.[1]) {
+        const value = Number(String(numberMatch[1]).replace(/,/g, ''));
+        if (!Number.isNaN(value) && value > 0) return value;
+      }
+    }
+  }
+  const fallback = text.match(/\$([\d,]+(?:\.\d{2})?)/);
+  if (fallback?.[1]) {
+    const value = Number(String(fallback[1]).replace(/,/g, ''));
+    if (!Number.isNaN(value) && value > 0) return value;
+  }
+  return null;
+}
+
+function extractKeywordDate(text, label) {
+  const pattern = new RegExp(`(?:${label})[^\\n\\r]{0,80}?(\\d{1,2}\\/\\d{1,2}\\/\\d{2,4}|[A-Z][a-z]{2,8}\\s+\\d{1,2},?\\s+\\d{4})`, 'i');
+  const match = text.match(pattern);
+  if (!match?.[1]) return '';
+  const date = new Date(match[1]);
+  if (Number.isNaN(date.getTime())) return match[1];
+  return date.toISOString().slice(0, 10);
+}
+
+function extractKeywordLocation(text, label) {
+  const pattern = new RegExp(`(?:${label})[\\s\\S]{0,120}?([A-Z][A-Za-z .'-]+,\\s*[A-Z]{2})`, 'i');
+  const match = text.match(pattern);
+  return match?.[1] ? match[1].trim() : '';
+}
+
+function extractRoute(text) {
+  const direct = text.match(/([A-Z][A-Za-z .'-]+,\s*[A-Z]{2})\s*(?:→|->|-->| to )\s*([A-Z][A-Za-z .'-]+,\s*[A-Z]{2})/i);
+  if (direct?.[1] && direct?.[2]) {
+    return {
+      route: `${direct[1].trim()}→${direct[2].trim()}`,
+      pickup: direct[1].trim(),
+      delivery: direct[2].trim()
+    };
+  }
+  const pickup = extractKeywordLocation(text, 'pickup|origin');
+  const delivery = extractKeywordLocation(text, 'delivery|destination|consignee');
+  if (pickup || delivery) {
+    return {
+      route: pickup && delivery ? `${pickup}→${delivery}` : pickup || delivery,
+      pickup,
+      delivery
+    };
+  }
+  return { route: '', pickup: '', delivery: '' };
+}
+
+function looksLikeRateConfirmation(subject, body) {
+  const joined = `${subject}\n${body}`;
+  const keyword = /\brate\s*conf(?:irmation)?\b|\bcarrier\s*confirmation\b|\bload\s*tender\b|\bdispatch\s*confirmation\b/i.test(joined);
+  const routeOrStops = /\bpickup\b/i.test(joined) && /\bdeliver(?:y)?\b/i.test(joined);
+  const money = /\$[\d,]+(?:\.\d{2})?/.test(joined);
+  return keyword && (routeOrStops || money);
+}
+
+function buildHistoryDate(pickupDate, deliveryDate, messageDateIso) {
+  if (pickupDate && deliveryDate && pickupDate !== deliveryDate) return `${pickupDate} → ${deliveryDate}`;
+  if (pickupDate) return pickupDate;
+  if (deliveryDate) return deliveryDate;
+  return messageDateIso ? messageDateIso.slice(0, 10) : '';
+}
+
+function buildParticipants(input, ignoreDomains) {
+  return [
+    ...parseEmails(input.from),
+    ...parseEmails(input.to),
+    ...parseEmails(input.cc),
+    ...parseEmails(input.bcc),
+    ...parseEmails(input.replyTo),
+    ...parseEmails(input.deliveredTo),
+    ...parseEmails(input.bodyText),
+    ...parseEmails(input.snippet)
+  ].filter((email, index, items) => items.indexOf(email) === index && !shouldIgnoreEmail(email, ignoreDomains));
+}
+
+function normalizeRateConfirmationEvent(input) {
+  const subject = cleanText(input.subject || '');
+  const bodyText = cleanText([
+    input.bodyPlain || '',
+    input.bodyText || '',
+    input.bodyHtml ? stripHtml(input.bodyHtml) : '',
+    input.snippet || ''
+  ].filter(Boolean).join('\n'));
+  const participants = buildParticipants({ ...input, subject, bodyText }, input.ignoreDomains || []);
+  const parsed = extractRateConfirmation({
+    subject,
+    date: input.date || '',
+    from: input.from || ''
+  }, bodyText, participants);
+
+  const route = input.route || '';
+  const pickup = input.pickup || '';
+  const delivery = input.delivery || '';
+  const normalized = parsed || {
+    loadId: '',
+    route: route || (pickup && delivery ? `${pickup}→${delivery}` : pickup || delivery),
+    pickupDate: '',
+    deliveryDate: '',
+    latestMessageAt: toIsoDate(input.date),
+    rate: null,
+    dispatcher: parseDisplayName(input.from),
+    phones: [],
+    matchedEmails: participants,
+    customer: '',
+    subject
+  };
+
+  normalized.loadId = input.loadId || normalized.loadId || '';
+  normalized.route = route || normalized.route || (pickup && delivery ? `${pickup}→${delivery}` : pickup || delivery);
+  normalized.pickupDate = input.pickupDate || normalized.pickupDate || '';
+  normalized.deliveryDate = input.deliveryDate || normalized.deliveryDate || '';
+  normalized.latestMessageAt = toIsoDate(input.date) || normalized.latestMessageAt || '';
+  normalized.rate = input.rate != null && input.rate !== '' ? Number(input.rate) : normalized.rate;
+  if (Number.isNaN(normalized.rate)) normalized.rate = null;
+  normalized.dispatcher = input.dispatcher || normalized.dispatcher || '';
+  normalized.phones = [...new Set([...(normalized.phones || []), ...parsePhones(bodyText), ...parsePhones(input.phone || '')])].slice(0, 3);
+  normalized.matchedEmails = participants;
+  normalized.customer = input.customer || normalized.customer || '';
+  normalized.subject = subject || normalized.subject || '';
+
+  const hasStructuredData = Boolean(
+    normalized.loadId || normalized.route || normalized.rate != null || normalized.pickupDate || normalized.deliveryDate
+  );
+  if (!hasStructuredData && !looksLikeRateConfirmation(subject, bodyText)) return null;
+  return normalized;
+}
+
+function extractRateConfirmation(headers, body, participants) {
+  const subject = cleanText(headers.subject || '');
+  const messageDateIso = toIsoDate(headers.date);
+  const text = cleanText(`${subject}\n${body}`);
+  if (!looksLikeRateConfirmation(subject, text)) return null;
+
+  const route = extractRoute(text);
+  const pickupDate = extractKeywordDate(text, 'pickup|origin');
+  const deliveryDate = extractKeywordDate(text, 'delivery|destination|consignee');
+  const rate = extractMoney(text);
+  const dispatcher = parseDisplayName(headers.from);
+  const phones = parsePhones(text).slice(0, 3);
+  const customerMatch = text.match(/\b(?:customer|shipper)\b[^\n:]{0,15}[:\-]?\s*([^\n]{3,100})/i);
+
+  return {
+    loadId: extractLoadId(text),
+    route: route.route,
+    pickupDate,
+    deliveryDate,
+    latestMessageAt: messageDateIso,
+    rate,
+    dispatcher,
+    phones,
+    matchedEmails: participants,
+    customer: customerMatch?.[1] ? customerMatch[1].trim() : '',
+    subject
+  };
+}
+
+function appendUnique(list, values, limit) {
+  const next = Array.isArray(list) ? list.slice() : [];
+  values.forEach((value) => {
+    if (!value || next.includes(value)) return;
+    next.unshift(value);
+  });
+  return typeof limit === 'number' ? next.slice(0, limit) : next;
+}
+
+function createAggregate() {
+  return {
+    messageCount: 0,
+    rateConfirmationCount: 0,
+    matchedEmails: new Set(),
+    recentSubjects: [],
+    latestMessageAt: '',
+    phones: new Set(),
+    dispatchers: new Set(),
+    routes: new Map(),
+    loadHistory: new Map(),
+    rates: []
+  };
+}
+
+function mergeLoadHistory(existingHistory, aggregate) {
+  const history = Array.isArray(existingHistory) ? existingHistory.map((entry) => ({ ...entry })) : [];
+  const indexByLoadId = new Map();
+  history.forEach((entry, index) => {
+    const key = String(entry?.load_id || '').trim();
+    if (key) indexByLoadId.set(key, index);
+  });
+
+  aggregate.loadHistory.forEach((entry, key) => {
+    const nextEntry = {
+      load_id: key || entry.load_id || '',
+      route: entry.route || '',
+      date: buildHistoryDate(entry.pickupDate, entry.deliveryDate, entry.latestMessageAt),
+      status: 'Completed',
+      notes: [
+        entry.customer ? `Customer ${entry.customer}` : '',
+        entry.rate != null ? `Rate ${fmtMoney(entry.rate)}` : ''
+      ].filter(Boolean).join(' · '),
+      rate: entry.rate,
+      pickup_date: entry.pickupDate || '',
+      delivery_date: entry.deliveryDate || '',
+      source: 'gmail-rate-confirmation',
+      synced_at: nowIso()
+    };
+
+    if (indexByLoadId.has(key)) {
+      history[indexByLoadId.get(key)] = {
+        ...history[indexByLoadId.get(key)],
+        ...nextEntry
+      };
+      return;
+    }
+    history.unshift(nextEntry);
+  });
+
+  return history.slice(0, 30);
+}
+
+function summarizeCarrier(carrier, aggregate, syncMeta) {
+  const loadHistory = mergeLoadHistory(carrier?.loadHistory, aggregate);
+  const completedLoads = loadHistory.filter((entry) => String(entry?.status || '').toLowerCase() === 'completed').length;
+  const rates = aggregate.rates.length ? aggregate.rates : loadHistory.map((entry) => Number(entry?.rate)).filter((value) => !Number.isNaN(value) && value > 0);
+  const avgRate = rates.length
+    ? `Avg RC ${fmtMoney(rates.reduce((sum, value) => sum + value, 0) / rates.length)} (${rates.length} loads)`
+    : carrier?.avgRate || '';
+  const preferredLanes = [...aggregate.routes.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([route]) => route)
+    .join(' · ') || carrier?.preferredLanes || '';
+  const latestMessageAt = aggregate.latestMessageAt || carrier?.gmailSync?.latestMessageAt || '';
+  const carrierEmails = parseEmails(carrier?.email || '');
+  const mergedEmails = appendUnique(carrierEmails, [...aggregate.matchedEmails].sort());
+
+  return {
+    ...carrier,
+    email: mergedEmails.join(' / '),
+    phone: carrier?.phone || [...aggregate.phones].join(' / '),
+    dispatcher: carrier?.dispatcher || [...aggregate.dispatchers][0] || '',
+    lastActive: latestMessageAt ? latestMessageAt.slice(0, 10) : carrier?.lastActive || '',
+    preferredLanes,
+    avgRate,
+    loadsCompleted: Math.max(Number(carrier?.loadsCompleted || 0), completedLoads),
+    loadHistory,
+    sources: ensureGmailSource(carrier?.sources),
+    gmailSync: {
+      messageCount: aggregate.messageCount,
+      rateConfirmationCount: aggregate.rateConfirmationCount,
+      matchedEmails: [...aggregate.matchedEmails].sort(),
+      recentSubjects: aggregate.recentSubjects.slice(0, 5),
+      latestMessageAt,
+      syncedAt: syncMeta.syncedAt,
+      query: syncMeta.query,
+      labelIds: syncMeta.labelIds
+    }
+  };
+}
+
+export function applyRateConfirmationEvents(carriers, events, options) {
+  const ignoreDomains = (options?.ignoreDomains || DEFAULT_IGNORE_DOMAINS).map((value) => value.toLowerCase());
+  const carrierEmailIndex = buildCarrierEmailIndex(carriers || []);
+  const aggregates = new Map();
+  let matchedMessages = 0;
+  let rateConfirmationMessages = 0;
+
+  (events || []).forEach((event) => {
+    const extracted = normalizeRateConfirmationEvent({ ...(event || {}), ignoreDomains });
+    if (!extracted) return;
+    const participants = extracted.matchedEmails || [];
+    const carrierIndexes = new Set();
+    participants.forEach((email) => {
+      (carrierEmailIndex.get(email) || []).forEach((index) => carrierIndexes.add(index));
+    });
+    if (!carrierIndexes.size) return;
+
+    matchedMessages += 1;
+    rateConfirmationMessages += 1;
+    carrierIndexes.forEach((index) => {
+      const aggregate = aggregates.get(index) || createAggregate();
+      aggregate.messageCount += 1;
+      aggregate.rateConfirmationCount += 1;
+      participants.forEach((email) => aggregate.matchedEmails.add(email));
+      extracted.phones.forEach((phone) => aggregate.phones.add(phone));
+      if (extracted.dispatcher) aggregate.dispatchers.add(extracted.dispatcher);
+      if (extracted.subject) aggregate.recentSubjects = appendUnique(aggregate.recentSubjects, [extracted.subject], 5);
+      if (extracted.latestMessageAt && (!aggregate.latestMessageAt || extracted.latestMessageAt > aggregate.latestMessageAt)) {
+        aggregate.latestMessageAt = extracted.latestMessageAt;
+      }
+      if (extracted.route) {
+        aggregate.routes.set(extracted.route, (aggregate.routes.get(extracted.route) || 0) + 1);
+      }
+      if (extracted.rate != null) aggregate.rates.push(extracted.rate);
+      if (extracted.loadId || extracted.route) {
+        const key = extracted.loadId || `${extracted.route}|${extracted.pickupDate}|${extracted.deliveryDate}`;
+        const existing = aggregate.loadHistory.get(key) || {};
+        aggregate.loadHistory.set(key, {
+          ...existing,
+          ...extracted
+        });
+      }
+      aggregates.set(index, aggregate);
+    });
+  });
+
+  const syncMeta = {
+    syncedAt: nowIso(),
+    query: options?.query || '',
+    labelIds: options?.labelIds || [],
+    userEmail: options?.userEmail || '',
+    scannedMessages: (events || []).length,
+    matchedMessages,
+    rateConfirmationMessages,
+    matchedCarriers: aggregates.size
+  };
+
+  const nextCarriers = (carriers || []).map((carrier, index) => {
+    const aggregate = aggregates.get(index);
+    if (!aggregate) return carrier;
+    return summarizeCarrier(carrier, aggregate, syncMeta);
+  });
+
+  return {
+    carriers: nextCarriers,
+    gmailSync: syncMeta
+  };
+}
+
+export async function syncCarriersFromGmail(carriers) {
+  const config = gmailConfig();
+  if (!config.clientId || !config.clientSecret || !config.refreshToken) {
+    throw new Error('Gmail sync is not configured. Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN.');
+  }
+
+  const accessToken = await fetchAccessToken(config);
+  const messageList = await gmailRequest('messages', accessToken, {
+    q: config.query,
+    maxResults: config.maxResults,
+    labelIds: config.labelIds
+  });
+  const messages = Array.isArray(messageList?.messages) ? messageList.messages : [];
+  const events = [];
+
+  for (const message of messages) {
+    if (!message?.id) continue;
+    const payload = await gmailRequest(`messages/${encodeURIComponent(message.id)}`, accessToken, {
+      format: 'full'
+    });
+    const headers = safeHeaderMap(payload);
+    const body = extractMessageText(payload);
+    events.push({
+      subject: headers.subject || '',
+      from: headers.from || '',
+      to: headers.to || '',
+      cc: headers.cc || '',
+      bcc: headers.bcc || '',
+      replyTo: headers['reply-to'] || '',
+      deliveredTo: headers['delivered-to'] || '',
+      date: headers.date || '',
+      bodyPlain: body,
+      snippet: payload?.snippet || ''
+    });
+  }
+
+  return applyRateConfirmationEvents(carriers, events, {
+    query: config.query,
+    labelIds: config.labelIds,
+    userEmail: config.userEmail || 'me',
+    ignoreDomains: config.ignoreDomains
+  });
+}

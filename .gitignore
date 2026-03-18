@@ -1,0 +1,9 @@
+# Local Netlify folder
+.netlify
+
+# Dependencies
+node_modules/
+
+# Python cache
+__pycache__/
+*.pyc
