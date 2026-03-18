@@ -852,13 +852,27 @@ function handleLoadsUpload(event){
   event.target.value = '';
 }
 
+function purgePastLoads(loads){
+  var today=new Date(); today.setHours(0,0,0,0);
+  return loads.filter(function(l){
+    var pd=l.pickup_date||'';
+    if(!pd) return true;
+    var parts=pd.split('/');
+    if(parts.length!==3) return true;
+    var d=new Date(parseInt(parts[2]),parseInt(parts[0])-1,parseInt(parts[1]));
+    return d>=today;
+  });
+}
+
 function applyParsedLoads(parsed, filename){
+  var active=purgePastLoads(parsed);
+  var removed=parsed.length-active.length;
   loadsData = {
     synced_at: new Date().toISOString().slice(0,19),
     filters_applied: 'uploaded:' + filename,
     total_available: parsed.length,
-    loads_captured: parsed.length,
-    loads: parsed
+    loads_captured: active.length,
+    loads: active
   };
   computeAllMatches();
   updateLoadsStats();
@@ -868,8 +882,11 @@ function applyParsedLoads(parsed, filename){
   var now=new Date();
   var h2=now.getHours(),m2=now.getMinutes(),ap=h2>=12?'PM':'AM';
   h2=h2%12||12;var ts=h2+':'+(m2<10?'0':'')+m2+' '+ap;
-  showToast('✓ '+parsed.length+' loads loaded from '+filename.replace(/.*[/\\]/,'')+' · '+ts);
-  console.log('Loaded ' + parsed.length + ' loads from ' + filename);
+  var msg='✓ '+active.length+' loads loaded from '+filename.replace(/.*[/\\]/,'');
+  if(removed>0) msg+=' ('+removed+' past pickup removed)';
+  msg+=' · '+ts;
+  showToast(msg);
+  console.log('Loaded ' + active.length + ' loads from ' + filename + (removed?' ('+removed+' expired removed)':''));
 }
 
 function parseTransportProHTML(htmlText){

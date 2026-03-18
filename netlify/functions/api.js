@@ -17,6 +17,19 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function purgePastLoads(loads) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return (loads || []).filter(l => {
+    const pd = l.pickup_date || '';
+    if (!pd) return true;
+    const parts = pd.split('/');
+    if (parts.length !== 3) return true;
+    const d = new Date(parseInt(parts[2]), parseInt(parts[0]) - 1, parseInt(parts[1]));
+    return d >= today;
+  });
+}
+
 function json(statusCode, payload) {
   return new Response(JSON.stringify(payload, null, 2), {
     status: statusCode,
@@ -180,9 +193,12 @@ export default async (request) => {
     if (request.method === 'POST' && pathname === '/state/sync') {
       const body = await parseBody(request);
       const current = await getState(store);
+      const incomingLoadsData = body.loadsData || current.loadsData || {};
+      const activeLods = purgePastLoads(incomingLoadsData.loads);
+      const cleanedLoadsData = { ...incomingLoadsData, loads: activeLods, loads_captured: activeLods.length };
       const synced = await writeState(store, {
         carriers: body.carriers || current.carriers,
-        loadsData: body.loadsData || current.loadsData,
+        loadsData: cleanedLoadsData,
         meta: current.meta
       }, user.email || user.userId || body.source || 'netlify_sync');
       return json(200, synced);
