@@ -80,6 +80,7 @@ td{padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.05);vertical-ali
 /* ── View toggling ───────────────────────────────────────────── */
 .loads-view{display:none}
 body.show-loads .carrier-view{display:none}
+body.show-loads #add-btn,body.show-loads #save-btn{display:none}
 body.show-loads .loads-view{display:block}
 body.show-loads #loads-statsbar,body.show-loads #loads-filterbar,body.show-loads #loads-table-wrap{display:flex}
 body.show-loads #loads-table-wrap{display:block}
@@ -205,7 +206,7 @@ body.show-loads #loads-table-wrap{display:block}
   <button id="save-btn" onclick="saveHTMLState()" title="Download HTML with current dispatch statuses &amp; issue flags baked in">&#x1F4BE; Save State</button>
   <button id="add-btn" onclick="openModal(null)"><span style="font-size:16px;line-height:1">+</span> Add Carrier</button>
 </div>
-<div id="statsbar">
+<div id="statsbar" class="carrier-view">
   <div class="stat-item"><span class="stat-val" id="s-total" style="color:#e8e8e0">0</span><span class="stat-lbl">Total Carriers</span></div>
   <div class="stat-item"><span class="stat-val" id="s-preferred" style="color:#1a7a4a">0</span><span class="stat-lbl">Preferred</span></div>
   <div class="stat-item"><span class="stat-val" id="s-approved" style="color:#2a6fa8">0</span><span class="stat-lbl">Approved</span></div>
@@ -215,7 +216,7 @@ body.show-loads #loads-table-wrap{display:block}
   <div class="stat-item stat-sync"><span class="stat-val" id="s-carriers-updated" style="color:#4a5a6a;font-size:12px">—</span><span class="stat-lbl">Carriers Updated</span></div>
   <div class="stat-item stat-sync"><span class="stat-val" id="s-loads-synced" style="color:#4a5a6a;font-size:12px">—</span><span class="stat-lbl">Loads Synced</span></div>
 </div>
-<div id="filterbar">
+<div id="filterbar" class="carrier-view">
   <div class="search-wrap">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4a5a6a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
     <input id="search-input" placeholder="Search carrier, MC#, lane, city, contact, load#..." oninput="renderTable()">
@@ -328,7 +329,7 @@ body.show-loads #loads-table-wrap{display:block}
   </div>
 </div>
 
-<div id="table-wrap">
+<div id="table-wrap" class="carrier-view">
   <table>
     <thead><tr>
       <th onclick="sortBy('company')">Carrier ↕</th><th>Equipment</th><th onclick="sortBy('homeBase')">Home Base ↕</th><th>Recent Lane</th><th onclick="sortBy('preferredLanes')">Origin ↕</th><th>Destination</th><th onclick="sortBy('status')">Status ↕</th><th onclick="sortBy('score')">Score ↕</th>
@@ -336,7 +337,7 @@ body.show-loads #loads-table-wrap{display:block}
     <tbody id="table-body"></tbody>
   </table>
 </div>
-<div id="detail-panel">
+<div id="detail-panel" class="carrier-view">
   <div class="panel-header">
     <div style="flex:1">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
