@@ -3,8 +3,9 @@
 This file is the single source of truth for working on this project. Read it in full before making any changes. It supersedes all previous handoff documents.
 
 **Last updated:** 2026-03-19
-**Current live revision:** 13
+**Current live revision:** 32
 **Current carrier count:** 96 (IDs 101–202)
+**Current load count:** 411
 
 ---
 
@@ -241,6 +242,8 @@ Direct Gmail OAuth sync code also exists in `gmail-sync-lib.js` and the schedule
 | `GMAIL_USER_EMAIL` | Optional | Gmail user, defaults to `me` |
 | `GMAIL_SYNC_SECRET` | Optional | Protects manual Gmail sync endpoint |
 | `NETLIFY_SYNC_STORE` | Optional | Override blob store name (default: auto-detected) |
+| `SESSION_SECRET` | **Required for SSO** | HMAC secret for signing session cookies |
+| `ALLOWED_DOMAINS` | Optional | Comma-separated allowed login domains (default: `circledelivers.com,circlelogistics.com`) |
 
 ---
 
@@ -327,3 +330,7 @@ open https://carrierdatabasev2.netlify.app
 - The `backend/` folder is historical — not the active production path
 - Load parser regression: test `parseTransportProHTML()` before touching parsing code
 - Carrier IDs are sequential — new carriers always start at `max(id) + 1`
+- SSO sessions are signed with `SESSION_SECRET` (HMAC-SHA256); changing this env var invalidates all sessions
+- Connected user Gmail tokens are stored in Netlify Blobs as `user-{email}` keys — do not delete
+- Always include `carriersUpdatedAt` in every `POST /api/state/sync` payload
+- Carrier string data must be stored as clean UTF-8 — never double-encode; use `fix_encoding()` in `sync_from_netlify.py` if re-importing legacy data
