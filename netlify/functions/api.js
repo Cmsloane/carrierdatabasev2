@@ -71,6 +71,43 @@ function nowIso() {
   return new Date().toISOString().slice(0, 19);
 }
 
+// ── Email notifications ──────────────────────────────────────────────────────
+async function sendEmailNotification(subject, htmlBody) {
+  const toEmail = process.env.NOTIFY_EMAIL || 'conrad.sloane@circledelivers.com';
+  const refreshToken = process.env.GMAIL_REFRESH_TOKEN || '';
+  if (!refreshToken || !GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) return;
+
+  try {
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token'
+      })
+    });
+    const { access_token } = await tokenRes.json();
+    if (!access_token) return;
+
+    const raw = [
+      `To: ${toEmail}`,
+      `Subject: ${subject}`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/html; charset=utf-8',
+      '',
+      htmlBody
+    ].join('\r\n');
+
+    await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ raw: Buffer.from(raw).toString('base64url') })
+    });
+  } catch { /* never block the main flow */ }
+}
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -436,7 +473,7 @@ export default async (request) => {
 
       const synced = await writeState(store, { ...current, carriers, carriersUpdatedAt: nowIso() }, 'gmail_sync');
 
-      return json(200, {
+      const syncResponse = {
         ok: true, configured: true,
         newCarriers: totalNewCarriers.length,
         newCarrierNames: totalNewCarriers.map(c => c.company),
@@ -447,7 +484,27 @@ export default async (request) => {
         userResults: userSyncResults,
         revision: synced.meta.revision,
         carriersUpdatedAt: synced.carriersUpdatedAt
-      });
+      };
+
+      const userRows = userSyncResults.map(u =>
+        `<tr><td>${u.email}</td><td>${u.ok ? '✅' : '❌'}</td><td>${u.newCarriers || 0}</td><td>${u.scanned || 0}</td><td>${u.error || ''}</td></tr>`
+      ).join('');
+      const newNames = totalNewCarriers.map(c => `<li>${c.company}</li>`).join('') || '<li>(none)</li>';
+      await sendEmailNotification('✅ CarrierDB Sync Complete', `
+        <h2>Carrier Sync Results</h2>
+        <p><strong>New carriers added:</strong> ${totalNewCarriers.length}</p>
+        <ul>${newNames}</ul>
+        <p><strong>Messages scanned:</strong> ${syncResponse.messagesScanned}</p>
+        <p><strong>Carriers updated from rate-cons:</strong> ${totalUpdated}</p>
+        <p><strong>Accounts scanned:</strong> ${userSyncResults.length}</p>
+        <table border="1" cellpadding="4" cellspacing="0">
+          <thead><tr><th>Account</th><th>Status</th><th>New</th><th>Scanned</th><th>Error</th></tr></thead>
+          <tbody>${userRows}</tbody>
+        </table>
+        <p><strong>Revision:</strong> ${synced.meta.revision} &nbsp; <strong>Time:</strong> ${nowIso()}</p>
+      `);
+
+      return json(200, syncResponse);
     }
 
     if (request.method === 'GET' && pathname === '/zapier/status') {
@@ -502,7 +559,13 @@ export default async (request) => {
       });
       const tokens = await tokenRes.json();
       if (!tokenRes.ok || tokens.error) {
-        return redirect(`/?auth_error=${encodeURIComponent(tokens.error_description || tokens.error || 'token_exchange_failed')}`);
+        const errMsg = tokens.error_description || tokens.error || 'token_exchange_failed';
+        await sendEmailNotification('❌ CarrierDB Login Error', `
+          <p>A login attempt failed during token exchange.</p>
+          <p><strong>Error:</strong> ${errMsg}</p>
+          <p><strong>Time:</strong> ${nowIso()}</p>
+        `);
+        return redirect(`/?auth_error=${encodeURIComponent(errMsg)}`);
       }
 
       // Get Google user info
@@ -515,6 +578,14 @@ export default async (request) => {
       // Enforce domain allowlist
       const domain = (userInfo.email.split('@')[1] || '').toLowerCase();
       if (ALLOWED_DOMAINS.length && !ALLOWED_DOMAINS.includes(domain)) {
+        await sendEmailNotification('⚠️ CarrierDB Blocked Login Attempt', `
+          <p>Someone tried to sign in with an unauthorized Google account.</p>
+          <p><strong>Email attempted:</strong> ${userInfo.email}</p>
+          <p><strong>Name:</strong> ${userInfo.name || '(unknown)'}</p>
+          <p><strong>Domain:</strong> ${domain}</p>
+          <p><strong>Allowed domains:</strong> ${ALLOWED_DOMAINS.join(', ')}</p>
+          <p><strong>Time:</strong> ${nowIso()}</p>
+        `);
         return redirect(`/?auth_error=unauthorized_domain&hint=${encodeURIComponent(userInfo.email)}`);
       }
 
@@ -531,6 +602,19 @@ export default async (request) => {
         updatedAt: nowIso()
       };
       await store.setJSON(`user-${userInfo.email}`, userData);
+
+      const isNewUser = !existingUser.connectedAt;
+      await sendEmailNotification(
+        `🔔 CarrierDB Login: ${userData.name}`,
+        `
+          <p>${isNewUser ? 'A <strong>new user</strong> just connected their Google account.' : 'A user signed in.'}</p>
+          <p><strong>Name:</strong> ${userData.name}</p>
+          <p><strong>Email:</strong> ${userData.email}</p>
+          <p><strong>Gmail connected:</strong> ${userData.refreshToken ? 'Yes' : 'No'}</p>
+          <p><strong>First connected:</strong> ${userData.connectedAt}</p>
+          <p><strong>Time:</strong> ${nowIso()}</p>
+        `
+      );
 
       const cookie = makeSessionCookie(userData);
       return redirect('/', { 'Set-Cookie': cookie });
