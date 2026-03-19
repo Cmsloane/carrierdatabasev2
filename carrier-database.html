@@ -208,6 +208,72 @@ body.show-loads #loads-table-wrap{display:block}
 #sync-result-panel .srp-names span{display:block}
 #sync-result-panel .srp-error{padding:10px 14px;color:#cc7a7a;font-size:12px;font-family:'DM Mono',monospace}
 #sync-result-panel .srp-notconfigured{padding:10px 14px;color:#c07a10;font-size:11px;font-family:'DM Mono',monospace;line-height:1.5}
+
+/* ── Tappable contact links ──────────────────────────────── */
+.contact-link{color:inherit;text-decoration:none}
+.contact-link:hover{text-decoration:underline;color:#4a9eff}
+
+/* ── Mobile Responsive ───────────────────────────────────── */
+@media (max-width:768px){
+  /* Topbar */
+  #topbar{padding:0 10px;gap:8px;height:52px}
+  .logo-sub,.logo-sep,.sync-badge,#save-btn,.btn-label{display:none}
+  .logo-name{display:none}
+  #tab-nav{margin:0 0 0 2px}
+  .tab-btn{padding:0 12px;height:52px;font-size:12px}
+  #carrier-sync-btn{padding:7px 10px;font-size:14px}
+  #add-btn{padding:7px 12px;font-size:14px}
+
+  /* Statsbar — fixed, compact single row */
+  #statsbar,#loads-statsbar{top:52px;padding:8px 14px;gap:14px;height:44px;overflow:hidden;flex-wrap:nowrap}
+  #statsbar .stat-sync{display:none}
+  .stat-val{font-size:15px}
+  .stat-lbl{font-size:9px;white-space:nowrap}
+
+  /* Filterbar — fixed, horizontally scrollable */
+  #filterbar,#loads-filterbar{top:96px;padding:7px 10px;gap:6px;flex-wrap:nowrap;overflow-x:auto;height:46px;-webkit-overflow-scrolling:touch}
+  .search-wrap{flex:0 0 160px;min-width:130px;max-width:160px}
+  #search-input{font-size:12px;padding:6px 8px 6px 28px}
+  .filter-select{font-size:11px;padding:6px 4px;flex-shrink:0}
+  #result-count,#loads-result-count{flex-shrink:0;white-space:nowrap}
+  .date-filter-group{flex-shrink:0}
+  .date-filter-input{width:110px;font-size:11px}
+
+  /* Table wrap */
+  #table-wrap{margin-top:142px;height:calc(100vh - 142px)}
+  #loads-table-wrap{margin-top:142px;height:calc(100vh - 142px)}
+
+  /* Hide Home Base, Origin, Destination columns in carrier table */
+  #table-wrap table th:nth-child(3),#table-wrap table td:nth-child(3),
+  #table-wrap table th:nth-child(5),#table-wrap table td:nth-child(5),
+  #table-wrap table th:nth-child(6),#table-wrap table td:nth-child(6){display:none}
+  /* Hide Equipment and Weight in loads table */
+  #loads-table-wrap table th:nth-child(5),#loads-table-wrap table td:nth-child(5),
+  #loads-table-wrap table th:nth-child(6),#loads-table-wrap table td:nth-child(6){display:none}
+
+  /* Detail panels — full screen slide-in */
+  #detail-panel{width:100%;right:-100%}
+  #detail-panel.open{right:0}
+  #loads-detail-panel{width:100%;right:-100%}
+  #loads-detail-panel.open{right:0}
+
+  /* Modal — bottom sheet */
+  #modal-overlay{align-items:flex-end;padding:0}
+  #modal{width:100%;max-height:92vh;border-radius:16px 16px 0 0}
+  .form-grid-2{grid-template-columns:1fr}
+  .form-grid-4{grid-template-columns:1fr 1fr}
+
+  /* Sync result panel — full width */
+  #sync-result-panel{width:calc(100% - 24px);left:12px;right:12px}
+
+  /* Panel body padding */
+  .panel-body{padding:16px}
+  .panel-header{padding:14px 16px}
+
+  /* Perf grid — 3 cols still fits */
+  .perf-grid{gap:6px}
+  .perf-val{font-size:15px}
+}
 </style>
 <script async src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
@@ -228,9 +294,9 @@ body.show-loads #loads-table-wrap{display:block}
   <button class="tab-btn" id="tab-loads" onclick="switchView('loads')">Loads <span class="tab-count" id="tab-loads-count">0</span></button>
 </div>
   <div class="sync-badge" id="live-sync-badge"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#e8412a" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg><span id="live-sync-label">Synced · Mar 19, 2026</span></div>
-  <button id="carrier-sync-btn" onclick="triggerCarrierSync()" title="Fetch latest carriers and loads from the live database">⟳ Carrier Sync</button>
-  <button id="save-btn" onclick="saveHTMLState()" title="Download HTML with current dispatch statuses &amp; issue flags baked in">&#x1F4BE; Save State</button>
-  <button id="add-btn" onclick="openModal(null)"><span style="font-size:16px;line-height:1">+</span> Add Carrier</button>
+  <button id="carrier-sync-btn" onclick="triggerCarrierSync()" title="Fetch latest carriers and loads from the live database">⟳ <span class="btn-label">Carrier Sync</span></button>
+  <button id="save-btn" onclick="saveHTMLState()" title="Download HTML with current dispatch statuses &amp; issue flags baked in">&#x1F4BE; <span class="btn-label">Save State</span></button>
+  <button id="add-btn" onclick="openModal(null)"><span style="font-size:16px;line-height:1">+</span> <span class="btn-label">Add Carrier</span></button>
 </div>
 <div id="statsbar">
   <div class="stat-item"><span class="stat-val" id="s-total" style="color:#e8e8e0">0</span><span class="stat-lbl">Total Carriers</span></div>
@@ -533,8 +599,10 @@ function selectCarrier(id){
   var ibEl=document.getElementById('p-issue-badge');
   if(c.issueFlag){ibEl.textContent='⚠ '+c.issueFlag;ibEl.className='issue-flag'+(c.issueFlag==='Fraud Alert'?'':' issue-warn');ibEl.style.display='inline-flex';}else{ibEl.style.display='none';}
   var iSel=document.getElementById('p-issue-select');if(iSel)iSel.value=c.issueFlag||'';
-  document.getElementById('p-dispatcher').textContent=val(c.dispatcher);document.getElementById('p-phone').textContent=val(c.phone);
-  document.getElementById('p-email').textContent=val(c.email);document.getElementById('p-afterhours').textContent=val(c.afterHours);
+  document.getElementById('p-dispatcher').textContent=val(c.dispatcher);
+  var ph=document.getElementById('p-phone');ph.innerHTML=c.phone?'<a class="contact-link" href="tel:'+c.phone.replace(/[^\d+x]/gi,'').replace(/x/,',,')+'">'+c.phone+'</a>':'—';
+  var em=document.getElementById('p-email');em.innerHTML=c.email?'<a class="contact-link" href="mailto:'+c.email+'">'+c.email+'</a>':'—';
+  var ah=document.getElementById('p-afterhours');ah.innerHTML=c.afterHours?(c.afterHours.includes('@')?'<a class="contact-link" href="mailto:'+c.afterHours+'">'+c.afterHours+'</a>':c.afterHours.match(/[\d\-\(\)]{7,}/)?'<a class="contact-link" href="tel:'+c.afterHours.replace(/[^\d+]/g,'')+'">'+c.afterHours+'</a>':c.afterHours):'—';
   document.getElementById('p-equip').textContent=val(c.equipment);document.getElementById('p-hazmat').textContent=c.hazmat||'No';
   document.getElementById('p-safety').textContent=val(c.safetyRating);document.getElementById('p-insurance').textContent=c.insurance||'Verify on FMCSA';
   document.getElementById('p-home').textContent=val(c.homeBase);document.getElementById('p-lanes').textContent=val(c.preferredLanes);
