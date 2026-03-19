@@ -100,13 +100,16 @@ async function getState(store) {
 
 async function writeState(store, nextState, source) {
   const revision = Number(nextState?.meta?.revision || 0) + 1;
+  const now = nowIso();
   const payload = {
     carriers: nextState.carriers || [],
-    loadsData: nextState.loadsData || { synced_at: nowIso(), total_available: 0, loads_captured: 0, loads: [] },
+    loadsData: nextState.loadsData || { synced_at: now, total_available: 0, loads_captured: 0, loads: [] },
+    carriersUpdatedAt: nextState.carriersUpdatedAt || now,
     meta: {
       ...(nextState.meta || {}),
       source: source || 'netlify_sync',
-      lastSyncedAt: nowIso(),
+      lastSyncedAt: now,
+      carriersUpdatedAt: nextState.carriersUpdatedAt || now,
       revision,
       backend: 'netlify-blobs'
     }
@@ -199,6 +202,7 @@ export default async (request) => {
       const synced = await writeState(store, {
         carriers: body.carriers || current.carriers,
         loadsData: cleanedLoadsData,
+        carriersUpdatedAt: body.carriersUpdatedAt || nowIso(),
         meta: current.meta
       }, user.email || user.userId || body.source || 'netlify_sync');
       return json(200, synced);
@@ -213,7 +217,7 @@ export default async (request) => {
       const nextCarrier = { ...(index >= 0 ? carriers[index] : {}), ...body, id, updated_by: user.email || user.userId };
       if (index >= 0) carriers[index] = nextCarrier;
       else carriers.push(nextCarrier);
-      await writeState(store, { ...current, carriers }, 'carrier_upsert');
+      await writeState(store, { ...current, carriers, carriersUpdatedAt: nowIso() }, 'carrier_upsert');
       return json(201, { carrier: nextCarrier });
     }
 
@@ -226,7 +230,7 @@ export default async (request) => {
       const nextCarrier = { ...(index >= 0 ? carriers[index] : {}), ...body, id: Number(carrierId) || carrierId, updated_by: user.email || user.userId };
       if (index >= 0) carriers[index] = nextCarrier;
       else carriers.push(nextCarrier);
-      await writeState(store, { ...current, carriers }, 'carrier_patch');
+      await writeState(store, { ...current, carriers, carriersUpdatedAt: nowIso() }, 'carrier_patch');
       return json(200, { carrier: nextCarrier });
     }
 
