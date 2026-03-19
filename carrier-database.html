@@ -190,11 +190,36 @@ body.show-loads #loads-table-wrap{display:block}
 #upload-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:#1a2a1a;border:1px solid #2a5a2a;color:#7acc7a;padding:10px 20px;border-radius:8px;font-size:13px;font-family:'DM Mono',monospace;z-index:9999;opacity:0;transition:opacity 0.3s,transform 0.3s;pointer-events:none;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,0.4)}
 #upload-toast.error{background:#2a1a1a;border-color:#5a2a2a;color:#cc7a7a}
 #upload-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#sync-result-panel{position:fixed;top:56px;right:16px;width:300px;background:#111820;border:1px solid #2a3a4a;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,0.5);z-index:9998;opacity:0;transform:translateY(-8px);transition:opacity 0.25s,transform 0.25s;pointer-events:none;overflow:hidden}
+#sync-result-panel.show{opacity:1;transform:translateY(0);pointer-events:auto}
+#sync-result-panel .srp-header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#0d1520;border-bottom:1px solid #1e2e3e}
+#sync-result-panel .srp-title{font-size:12px;font-weight:700;color:#4a9eff;font-family:'DM Mono',monospace;letter-spacing:0.05em}
+#sync-result-panel .srp-close{background:none;border:none;color:#556070;cursor:pointer;font-size:16px;line-height:1;padding:0 2px}
+#sync-result-panel .srp-close:hover{color:#aab}
+#sync-result-panel .srp-body{padding:12px 14px;display:flex;flex-direction:column;gap:7px}
+#sync-result-panel .srp-row{display:flex;align-items:baseline;gap:8px;font-size:12px;font-family:'DM Mono',monospace}
+#sync-result-panel .srp-val{font-size:16px;font-weight:700;min-width:28px;text-align:right}
+#sync-result-panel .srp-lbl{color:#8a9aaa;font-size:11px}
+#sync-result-panel .srp-new{color:#4acc7a}
+#sync-result-panel .srp-updated{color:#4a9eff}
+#sync-result-panel .srp-skipped{color:#8a9aaa}
+#sync-result-panel .srp-scanned{color:#8a9aaa}
+#sync-result-panel .srp-names{padding:0 14px 10px;font-size:11px;color:#7acc7a;font-family:'DM Mono',monospace;line-height:1.6;border-top:1px solid #1e2e3e;margin-top:2px}
+#sync-result-panel .srp-names span{display:block}
+#sync-result-panel .srp-error{padding:10px 14px;color:#cc7a7a;font-size:12px;font-family:'DM Mono',monospace}
+#sync-result-panel .srp-notconfigured{padding:10px 14px;color:#c07a10;font-size:11px;font-family:'DM Mono',monospace;line-height:1.5}
 </style>
 <script async src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
 <div id="upload-toast"></div>
+<div id="sync-result-panel">
+  <div class="srp-header">
+    <span class="srp-title">GMAIL SYNC RESULT</span>
+    <button class="srp-close" onclick="document.getElementById('sync-result-panel').classList.remove('show')">×</button>
+  </div>
+  <div id="srp-content"></div>
+</div>
 <div id="topbar">
   <div class="logo-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>
   <span class="logo-name">Circle Logistics</span><span class="logo-sep">·</span><span class="logo-sub">Carrier Database</span>
@@ -1650,38 +1675,66 @@ function fetchLiveState(callback) {
     else { if (callback) callback(false); }
   }).catch(function(){ if (callback) callback(false); });
 }
+function showSyncResult(gmailResult) {
+  var panel = document.getElementById('sync-result-panel');
+  var content = document.getElementById('srp-content');
+  if (!panel || !content) return;
+  var html = '';
+  if (!gmailResult) {
+    html = '<div class="srp-error">⚠ Could not reach server</div>';
+  } else if (gmailResult.configured === false) {
+    html = '<div class="srp-notconfigured">Gmail OAuth is not configured.<br>Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN in Netlify environment variables.</div>';
+  } else if (gmailResult.error) {
+    html = '<div class="srp-error">⚠ ' + gmailResult.error + '</div>';
+  } else {
+    html += '<div class="srp-body">';
+    html += '<div class="srp-row"><span class="srp-val srp-new">' + (gmailResult.newCarriers || 0) + '</span><span class="srp-lbl">new carriers added</span></div>';
+    html += '<div class="srp-row"><span class="srp-val srp-updated">' + (gmailResult.updatedFromRateCons || 0) + '</span><span class="srp-lbl">carriers updated from rate cons</span></div>';
+    html += '<div class="srp-row"><span class="srp-val srp-skipped">' + (gmailResult.skipped || 0) + '</span><span class="srp-lbl">skipped (already in database)</span></div>';
+    html += '<div class="srp-row"><span class="srp-val srp-scanned">' + (gmailResult.messagesScanned || 0) + '</span><span class="srp-lbl">messages scanned</span></div>';
+    html += '</div>';
+    if (gmailResult.newCarrierNames && gmailResult.newCarrierNames.length) {
+      html += '<div class="srp-names">';
+      gmailResult.newCarrierNames.forEach(function(name) {
+        html += '<span>+ ' + name + '</span>';
+      });
+      html += '</div>';
+    }
+  }
+  content.innerHTML = html;
+  panel.classList.add('show');
+  clearTimeout(panel._timer);
+  if (!gmailResult || gmailResult.configured === false || gmailResult.error) {
+    panel._timer = setTimeout(function() { panel.classList.remove('show'); }, 8000);
+  }
+}
 function triggerCarrierSync() {
   var btn = document.getElementById('carrier-sync-btn');
   if (!btn || btn.classList.contains('syncing')) return;
   btn.classList.add('syncing');
   btn.textContent = '⟳ Syncing…';
+  var panel = document.getElementById('sync-result-panel');
+  if (panel) panel.classList.remove('show');
   if (typeof fetch === 'undefined') {
     btn.classList.remove('syncing');
     btn.textContent = '⟳ Carrier Sync';
-    showToast('Could not reach server — showing cached data');
+    showSyncResult(null);
     return;
   }
   fetch('/api/gmail/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
     .then(function(r) { return r.ok ? r.json() : null; })
     .then(function(gmailResult) {
-      if (gmailResult && gmailResult.ok && gmailResult.newCarriers > 0) {
-        showToast('Gmail sync: ' + gmailResult.newCarriers + ' new carrier' + (gmailResult.newCarriers === 1 ? '' : 's') + ' added');
-      } else if (gmailResult && gmailResult.ok) {
-        showToast('Gmail sync complete — no new carriers');
-      } else if (gmailResult && gmailResult.configured === false) {
-        showToast('Gmail not configured — refreshing data only');
-      }
-      fetchLiveState(function(ok) {
+      showSyncResult(gmailResult);
+      fetchLiveState(function() {
         btn.classList.remove('syncing');
         btn.textContent = '⟳ Carrier Sync';
-        if (!gmailResult) showToast(ok ? 'Synced with live database' : 'Could not reach server — showing cached data');
       });
     })
     .catch(function() {
-      fetchLiveState(function(ok) {
+      showSyncResult(null);
+      fetchLiveState(function() {
         btn.classList.remove('syncing');
         btn.textContent = '⟳ Carrier Sync';
-        showToast(ok ? 'Synced with live database' : 'Could not reach server — showing cached data');
       });
     });
 }
