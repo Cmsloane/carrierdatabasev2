@@ -116,12 +116,12 @@ function ensureGmailSource(sources) {
   return next;
 }
 
-function gmailConfig() {
+function gmailConfig(override = {}) {
   return {
-    clientId: process.env.GMAIL_CLIENT_ID || '',
-    clientSecret: process.env.GMAIL_CLIENT_SECRET || '',
-    refreshToken: process.env.GMAIL_REFRESH_TOKEN || '',
-    userEmail: process.env.GMAIL_USER_EMAIL || 'me',
+    clientId: override.clientId || process.env.GMAIL_CLIENT_ID || '',
+    clientSecret: override.clientSecret || process.env.GMAIL_CLIENT_SECRET || '',
+    refreshToken: override.refreshToken || process.env.GMAIL_REFRESH_TOKEN || '',
+    userEmail: override.userEmail || process.env.GMAIL_USER_EMAIL || 'me',
     query: process.env.GMAIL_SYNC_QUERY || DEFAULT_QUERY,
     labelIds: normalizeList(process.env.GMAIL_SYNC_LABEL_IDS || ''),
     maxResults: Math.max(1, Math.min(Number(process.env.GMAIL_SYNC_MAX_RESULTS || DEFAULT_MAX_RESULTS), 500)),
@@ -578,8 +578,8 @@ export function applyRateConfirmationEvents(carriers, events, options) {
   };
 }
 
-export async function syncCarriersFromGmail(carriers) {
-  const config = gmailConfig();
+export async function syncCarriersFromGmail(carriers, credentials = null) {
+  const config = gmailConfig(credentials || {});
   if (!config.clientId || !config.clientSecret || !config.refreshToken) {
     throw new Error('Gmail sync is not configured. Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN.');
   }
@@ -671,7 +671,7 @@ function parseBookNowEmail(rawBody) {
 // Searches Gmail for Book Now Dispatch emails sent directly to the authenticated user,
 // creates new carrier records for any carrier not already in the database.
 export async function syncNewCarriersFromBookNow(carriers, options = {}) {
-  const config = gmailConfig();
+  const config = gmailConfig(options.credentials || {});
   if (!config.clientId || !config.clientSecret || !config.refreshToken) {
     throw new Error('Gmail OAuth is not configured. Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN in Netlify environment variables.');
   }

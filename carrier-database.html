@@ -338,6 +338,58 @@ body.show-loads #loads-table-wrap{display:block}
 .trend-flat{color:#6a7a8a;font-size:12px;margin-left:3px;vertical-align:middle}
 /* ── DNU banner ─────────────────────────────────────────────── */
 .dnu-banner{background:rgba(192,57,43,0.1);border:1px solid rgba(192,57,43,0.3);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#e86050;line-height:1.5}
+
+/* ── Auth / User menu ───────────────────────────────────────── */
+#login-btn{background:transparent;border:1px solid rgba(232,65,42,0.4);color:#e8412a;font-size:12px;font-weight:600;padding:6px 14px;border-radius:7px;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0}
+#login-btn:hover{background:rgba(232,65,42,0.1)}
+#user-menu{position:relative;display:none;align-items:center;gap:8px;cursor:pointer;flex-shrink:0}
+.user-avatar{width:30px;height:30px;border-radius:50%;object-fit:cover;border:2px solid rgba(232,65,42,0.4);background:#1a2030}
+.user-initials{width:30px;height:30px;border-radius:50%;background:#e8412a;color:white;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.user-name-label{font-size:12px;color:#c8cdd6;font-weight:500;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.user-caret{color:#4a5a6a;font-size:10px;margin-left:-4px}
+#user-dropdown{position:absolute;top:calc(100% + 8px);right:0;background:#111820;border:1px solid #2a3a4a;border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,0.5);min-width:220px;z-index:200;display:none;overflow:hidden}
+#user-dropdown.open{display:block}
+.ud-header{padding:12px 16px;background:#0d1520;border-bottom:1px solid #1e2e3e}
+.ud-email{font-size:11px;color:#4a9eff;font-family:'DM Mono',monospace;overflow:hidden;text-overflow:ellipsis}
+.ud-name{font-size:13px;font-weight:600;color:#e8e8e0;margin-bottom:2px}
+.ud-item{padding:10px 16px;font-size:13px;color:#c8cdd6;cursor:pointer;display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,0.04)}
+.ud-item:last-child{border-bottom:none}
+.ud-item:hover{background:rgba(255,255,255,0.05);color:#e8e8e0}
+.ud-item.danger{color:#e86050}
+.ud-item.danger:hover{background:rgba(232,65,42,0.08)}
+
+/* ── Gmail Users modal ──────────────────────────────────────── */
+#gmail-users-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:300;display:none;align-items:center;justify-content:center;padding:20px}
+#gmail-users-overlay.open{display:flex}
+#gmail-users-modal{background:#111820;border:1px solid #2a3a4a;border-radius:14px;width:100%;max-width:520px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 16px 48px rgba(0,0,0,0.6)}
+#gmail-users-modal .gum-header{padding:16px 20px;border-bottom:1px solid #1e2e3e;display:flex;align-items:center;justify-content:space-between}
+#gmail-users-modal .gum-title{font-size:15px;font-weight:700;color:#e8e8e0}
+#gmail-users-modal .gum-subtitle{font-size:11px;color:#4a5a6a;margin-top:2px}
+#gmail-users-modal .gum-body{padding:16px 20px;overflow-y:auto;flex:1}
+#gmail-users-modal .gum-footer{padding:14px 20px;border-top:1px solid #1e2e3e}
+.gu-card{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;gap:12px}
+.gu-card:last-child{margin-bottom:0}
+.gu-avatar{width:36px;height:36px;border-radius:50%;flex-shrink:0;object-fit:cover;background:#1a2030}
+.gu-initials{width:36px;height:36px;border-radius:50%;background:#e8412a;color:white;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.gu-info{flex:1;min-width:0}
+.gu-name{font-size:13px;font-weight:600;color:#e8e8e0}
+.gu-email{font-size:11px;color:#5a6a7a;font-family:'DM Mono',monospace;overflow:hidden;text-overflow:ellipsis}
+.gu-meta{font-size:10px;color:#4a5a6a;margin-top:3px}
+.gu-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;display:inline-block;margin-top:3px}
+.gu-badge.connected{color:#1a7a4a;background:rgba(26,122,74,0.15);border:1px solid rgba(26,122,74,0.3)}
+.gu-badge.pending{color:#c07a10;background:rgba(192,122,16,0.12);border:1px solid rgba(192,122,16,0.3)}
+.gu-remove{background:transparent;border:1px solid rgba(232,65,42,0.3);color:#cc5050;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0}
+.gu-remove:hover{background:rgba(232,65,42,0.1)}
+.gum-connect-btn{width:100%;background:#e8412a;border:none;color:white;font-size:13px;font-weight:700;padding:12px;border-radius:8px;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px}
+.gum-connect-btn:hover{background:#d03520}
+.gum-loading{text-align:center;padding:24px;color:#4a5a6a;font-size:13px}
+.auth-error-toast{position:fixed;top:68px;left:50%;transform:translateX(-50%);background:#2a1a1a;border:1px solid rgba(232,65,42,0.4);color:#e86050;padding:10px 20px;border-radius:8px;font-size:12px;font-family:'DM Mono',monospace;z-index:400;opacity:0;transition:opacity 0.3s;pointer-events:none}
+.auth-error-toast.show{opacity:1}
+@media (max-width:768px){
+  #user-name-label{display:none}
+  #gmail-users-modal{max-height:90vh}
+  .gum-connect-btn{padding:14px}
+}
 </style>
 <script async src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
@@ -361,7 +413,51 @@ body.show-loads #loads-table-wrap{display:block}
   <button id="carrier-sync-btn" onclick="triggerCarrierSync()" title="Fetch latest carriers and loads from the live database">⟳ <span class="btn-label">Carrier Sync</span></button>
   <button id="save-btn" onclick="saveHTMLState()" title="Download HTML with current dispatch statuses &amp; issue flags baked in">&#x1F4BE; <span class="btn-label">Save State</span></button>
   <button id="add-btn" onclick="openModal(null)"><span style="font-size:16px;line-height:1">+</span> <span class="btn-label">Add Carrier</span></button>
+  <button id="login-btn" style="display:none" onclick="signInWithGoogle()">Sign In</button>
+  <div id="user-menu" onclick="toggleUserDropdown()">
+    <div class="user-initials" id="user-initials">?</div>
+    <img class="user-avatar" id="user-avatar-img" style="display:none" alt="avatar">
+    <span class="user-name-label" id="user-name-label"></span>
+    <span class="user-caret">▾</span>
+    <div id="user-dropdown">
+      <div class="ud-header">
+        <div class="ud-name" id="ud-name"></div>
+        <div class="ud-email" id="ud-email"></div>
+      </div>
+      <div class="ud-item" onclick="openGmailUsersModal();event.stopPropagation()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 7L2 7"/></svg>
+        Gmail Sync Accounts
+      </div>
+      <div class="ud-item danger" onclick="signOut();event.stopPropagation()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+        Sign Out
+      </div>
+    </div>
+  </div>
 </div>
+
+<!-- Gmail Users Modal -->
+<div id="gmail-users-overlay" onclick="if(event.target===this)closeGmailUsersModal()">
+  <div id="gmail-users-modal">
+    <div class="gum-header">
+      <div>
+        <div class="gum-title">Gmail Sync Accounts</div>
+        <div class="gum-subtitle">Each connected account is scanned during Carrier Sync</div>
+      </div>
+      <button class="close-btn" onclick="closeGmailUsersModal()">✕</button>
+    </div>
+    <div class="gum-body" id="gum-body">
+      <div class="gum-loading">Loading accounts…</div>
+    </div>
+    <div class="gum-footer">
+      <button class="gum-connect-btn" onclick="signInWithGoogle()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M12 3v13"/><path d="M7 8l5-5 5 5"/></svg>
+        Connect another Google account
+      </button>
+    </div>
+  </div>
+</div>
+<div class="auth-error-toast" id="auth-error-toast"></div>
 <div id="statsbar">
   <div class="stat-item"><span class="stat-val" id="s-total" style="color:#e8e8e0">0</span><span class="stat-lbl">Total Carriers</span></div>
   <div class="stat-item"><span class="stat-val" id="s-preferred" style="color:#1a7a4a">0</span><span class="stat-lbl">Preferred</span></div>
@@ -1930,6 +2026,161 @@ setInterval(fetchLiveState, 30000);
 // Fetch on load
 fetchLiveState();
 updateStats();renderTable();updateLoadsStats();computeAllMatches();
+
+// ── Auth / SSO ─────────────────────────────────────────────
+var _authUser = null;
+
+function signInWithGoogle() {
+  window.location.href = '/api/auth/google';
+}
+
+function signOut() {
+  fetch('/api/auth/logout', { method: 'POST' })
+    .then(function() { _authUser = null; renderAuthUI(null); closeGmailUsersModal(); showToast('Signed out'); })
+    .catch(function() { window.location.reload(); });
+}
+
+function toggleUserDropdown() {
+  var dd = document.getElementById('user-dropdown');
+  if (dd) dd.classList.toggle('open');
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(e) {
+  var menu = document.getElementById('user-menu');
+  var dd = document.getElementById('user-dropdown');
+  if (menu && dd && !menu.contains(e.target)) dd.classList.remove('open');
+});
+
+function renderAuthUI(user) {
+  var loginBtn = document.getElementById('login-btn');
+  var userMenu = document.getElementById('user-menu');
+  var syncBtn = document.getElementById('carrier-sync-btn');
+  if (!user) {
+    if (loginBtn) loginBtn.style.display = 'block';
+    if (userMenu) userMenu.style.display = 'none';
+    // Sync button still works without login (uses primary account)
+    return;
+  }
+  if (loginBtn) loginBtn.style.display = 'none';
+  if (userMenu) userMenu.style.display = 'flex';
+  // Initials / avatar
+  var initials = (user.name || user.email || '?').split(' ').map(function(p){return p[0]||'';}).join('').toUpperCase().slice(0,2);
+  var initialsEl = document.getElementById('user-initials');
+  var avatarEl = document.getElementById('user-avatar-img');
+  var nameLabel = document.getElementById('user-name-label');
+  var udName = document.getElementById('ud-name');
+  var udEmail = document.getElementById('ud-email');
+  if (initialsEl) initialsEl.textContent = initials;
+  if (nameLabel) nameLabel.textContent = user.name || user.email;
+  if (udName) udName.textContent = user.name || '';
+  if (udEmail) udEmail.textContent = user.email || '';
+  if (user.picture && avatarEl) {
+    avatarEl.src = user.picture;
+    avatarEl.style.display = 'block';
+    if (initialsEl) initialsEl.style.display = 'none';
+  }
+}
+
+function checkAuth() {
+  if (typeof fetch === 'undefined') return;
+  // Check for auth error in URL
+  var params = new URLSearchParams(window.location.search);
+  var authError = params.get('auth_error');
+  if (authError) {
+    var msg = {
+      'unauthorized_domain': 'Sign-in blocked: your email domain is not authorized. Contact Conrad to be added.',
+      'sso_not_configured': 'Google SSO is not yet configured. Contact Conrad.',
+      'access_denied': 'Sign-in cancelled.',
+      'invalid_state': 'Sign-in session expired. Please try again.'
+    }[authError] || 'Sign-in error: ' + authError;
+    var toast = document.getElementById('auth-error-toast');
+    if (toast) { toast.textContent = msg; toast.classList.add('show'); setTimeout(function(){ toast.classList.remove('show'); }, 7000); }
+    // Clean URL
+    history.replaceState(null, '', window.location.pathname);
+  }
+  fetch('/api/auth/me')
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(data) {
+      if (data && data.authenticated) {
+        _authUser = data.user;
+        renderAuthUI(data.user);
+      } else {
+        _authUser = null;
+        renderAuthUI(null);
+      }
+    })
+    .catch(function() { renderAuthUI(null); });
+}
+
+function openGmailUsersModal() {
+  document.getElementById('user-dropdown') && document.getElementById('user-dropdown').classList.remove('open');
+  document.getElementById('gmail-users-overlay').classList.add('open');
+  loadGmailUsers();
+}
+
+function closeGmailUsersModal() {
+  document.getElementById('gmail-users-overlay').classList.remove('open');
+}
+
+function loadGmailUsers() {
+  var body = document.getElementById('gum-body');
+  if (!body) return;
+  body.innerHTML = '<div class="gum-loading">Loading accounts…</div>';
+  fetch('/api/auth/users')
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(data) {
+      if (!data) { body.innerHTML = '<div class="gum-loading" style="color:#cc7a7a">Could not load accounts. Please sign in first.</div>'; return; }
+      var users = data.users || [];
+      if (!users.length) { body.innerHTML = '<div class="gum-loading" style="color:#8a9aaa">No Gmail accounts connected yet.<br><br>Click "Connect another Google account" below to add yours.</div>'; return; }
+      body.innerHTML = users.map(function(u) {
+        var initials = ((u.name || u.email || '?').split(' ').map(function(p){return p[0]||'';}).join('').toUpperCase()||'?').slice(0,2);
+        var syncTime = u.lastSync ? ('Last sync: ' + (new Date(u.lastSync)).toLocaleString()) : 'Never synced';
+        var connectedTime = u.connectedAt ? ('Connected ' + (new Date(u.connectedAt)).toLocaleDateString()) : '';
+        var avatarHtml = u.picture
+          ? '<img class="gu-avatar" src="'+u.picture+'" alt="">'
+          : '<div class="gu-initials">'+initials+'</div>';
+        var badgeHtml = u.gmailConnected
+          ? '<span class="gu-badge connected">Gmail Connected</span>'
+          : '<span class="gu-badge pending">No Gmail Access</span>';
+        var removeBtn = u.isCurrentUser
+          ? '<button class="gu-remove" onclick="disconnectUser(\''+u.email+'\')">Disconnect</button>'
+          : '';
+        return '<div class="gu-card">'
+          + avatarHtml
+          + '<div class="gu-info">'
+          + '<div class="gu-name">'+(u.name||u.email)+'</div>'
+          + '<div class="gu-email">'+u.email+'</div>'
+          + '<div class="gu-meta">'+syncTime+(connectedTime?' · '+connectedTime:'')+'</div>'
+          + badgeHtml
+          + '</div>'
+          + removeBtn
+          + '</div>';
+      }).join('');
+    })
+    .catch(function() {
+      body.innerHTML = '<div class="gum-loading" style="color:#cc7a7a">Failed to load accounts.</div>';
+    });
+}
+
+function disconnectUser(email) {
+  if (!confirm('Disconnect '+email+' from Gmail sync?\n\nThis will remove their access token. They will need to sign in again to re-connect.')) return;
+  fetch('/api/auth/users/'+encodeURIComponent(email), { method: 'DELETE' })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(result) {
+      if (result && result.ok) {
+        showToast('Disconnected ' + email);
+        _authUser = null;
+        renderAuthUI(null);
+        loadGmailUsers();
+      } else {
+        showToast('Could not disconnect — try again');
+      }
+    });
+}
+
+// Run auth check on load
+checkAuth();
 
 // ── Highway.com profile opener ─────────────────────────────
 function openHighwayProfile(el) {

@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHmac, randomBytes } from 'node:crypto';
 import { getStore } from '@netlify/blobs';
 import {
   gmailSyncConfigStatus,
@@ -14,6 +15,57 @@ const functionDir = path.dirname(functionFilename);
 const ROOT_DIR = path.resolve(functionDir, '..', '..');
 const STATE_SEED_PATH = path.join(ROOT_DIR, 'backend', 'data', 'state.json');
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
+
+// ── SSO / Auth constants ────────────────────────────────────────────────────
+const SESSION_SECRET = process.env.SESSION_SECRET || 'cdb-dev-secret-change-in-production';
+const ALLOWED_DOMAINS = (process.env.ALLOWED_DOMAINS || 'circledelivers.com,circlelogistics.com')
+  .split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
+const GOOGLE_CLIENT_ID = process.env.GMAIL_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '';
+const GOOGLE_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || '';
+
+// ── Session helpers ─────────────────────────────────────────────────────────
+function b64u(s) { return Buffer.from(s).toString('base64url'); }
+function unb64u(s) { return Buffer.from(s, 'base64url').toString('utf8'); }
+
+function signSession(payload) {
+  const data = b64u(JSON.stringify(payload));
+  const sig = createHmac('sha256', SESSION_SECRET).update(data).digest('base64url');
+  return `${data}.${sig}`;
+}
+
+function verifySession(token) {
+  try {
+    const dot = token.lastIndexOf('.');
+    if (dot < 1) return null;
+    const data = token.slice(0, dot);
+    const sig = token.slice(dot + 1);
+    const expected = createHmac('sha256', SESSION_SECRET).update(data).digest('base64url');
+    if (sig !== expected) return null;
+    const payload = JSON.parse(unb64u(data));
+    if (payload.exp && Date.now() > payload.exp) return null;
+    return payload;
+  } catch { return null; }
+}
+
+function getSessionUser(request) {
+  const cookieHeader = request.headers.get('cookie') || '';
+  const match = cookieHeader.match(/(?:^|;\s*)cdb_session=([^;]+)/);
+  if (!match) return null;
+  return verifySession(decodeURIComponent(match[1]));
+}
+
+function makeSessionCookie(user, maxAgeSec = 7 * 24 * 3600) {
+  const payload = {
+    email: user.email, name: user.name, picture: user.picture || '',
+    exp: Date.now() + maxAgeSec * 1000
+  };
+  const token = signSession(payload);
+  return `cdb_session=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAgeSec}`;
+}
+
+function clearSessionCookie() {
+  return 'cdb_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0';
+}
 
 function nowIso() {
   return new Date().toISOString().slice(0, 19);
@@ -36,27 +88,28 @@ function purgePastLoads(loads) {
   });
 }
 
-function json(statusCode, payload) {
+const CORS_HEADERS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-headers': 'Content-Type, X-Goog-Authenticated-User-Email, X-Goog-Authenticated-User-Id',
+  'access-control-allow-methods': 'GET,POST,PATCH,DELETE,OPTIONS'
+};
+
+function json(statusCode, payload, extraHeaders = {}) {
   return new Response(JSON.stringify(payload, null, 2), {
     status: statusCode,
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'access-control-allow-origin': '*',
-      'access-control-allow-headers': 'Content-Type, X-Goog-Authenticated-User-Email, X-Goog-Authenticated-User-Id',
-      'access-control-allow-methods': 'GET,POST,PATCH,OPTIONS'
-    }
+    headers: { 'content-type': 'application/json; charset=utf-8', ...CORS_HEADERS, ...extraHeaders }
+  });
+}
+
+function redirect(location, extraHeaders = {}) {
+  return new Response(null, {
+    status: 302,
+    headers: { Location: location, ...CORS_HEADERS, ...extraHeaders }
   });
 }
 
 function noContent() {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      'access-control-allow-origin': '*',
-      'access-control-allow-headers': 'Content-Type, X-Goog-Authenticated-User-Email, X-Goog-Authenticated-User-Id',
-      'access-control-allow-methods': 'GET,POST,PATCH,OPTIONS'
-    }
-  });
+  return new Response(null, { status: 204, headers: CORS_HEADERS });
 }
 
 async function readSeedState() {
@@ -327,28 +380,71 @@ export default async (request) => {
       const current = await getState(store);
       let carriers = clone(current.carriers || []);
 
-      // Step 1: Create new carriers from Book Now Dispatch emails (to:me)
-      const bookNow = await syncNewCarriersFromBookNow(carriers);
-      carriers = [...carriers, ...bookNow.newCarriers];
+      // Collect all connected users with refresh tokens
+      let connectedUsers = [];
+      try {
+        const { blobs } = await store.list({ prefix: 'user-' });
+        const all = await Promise.all(blobs.map(b => store.get(b.key, { type: 'json' })));
+        connectedUsers = all.filter(u => u?.refreshToken);
+      } catch {}
 
-      // Step 2: Update existing carriers from rate confirmation threads
+      let totalNewCarriers = [];
+      let totalSkipped = 0;
+      let totalScanned = 0;
+      let totalUpdated = 0;
+      const userSyncResults = [];
+
+      // Step 1: Scan each connected user's Gmail for Book Now emails
+      const primaryEmail = process.env.GMAIL_USER_EMAIL || '';
+      const coveredEmails = new Set();
+
+      for (const u of connectedUsers) {
+        if (coveredEmails.has(u.email)) continue;
+        coveredEmails.add(u.email);
+        try {
+          const creds = { clientId: GOOGLE_CLIENT_ID, clientSecret: GOOGLE_CLIENT_SECRET, refreshToken: u.refreshToken, userEmail: u.email };
+          const bookNow = await syncNewCarriersFromBookNow(carriers, { credentials: creds });
+          carriers = [...carriers, ...bookNow.newCarriers];
+          totalNewCarriers.push(...bookNow.newCarriers);
+          totalSkipped += bookNow.skipped.length;
+          totalScanned += bookNow.messagesScanned;
+          userSyncResults.push({ email: u.email, name: u.name, newCarriers: bookNow.newCarriers.length, scanned: bookNow.messagesScanned, ok: true });
+          await store.setJSON(`user-${u.email}`, { ...u, lastSync: nowIso() });
+        } catch (err) {
+          userSyncResults.push({ email: u.email, name: u.name, ok: false, error: err.message });
+        }
+      }
+
+      // Also scan primary env-var account if not already covered
+      if (primaryEmail && !coveredEmails.has(primaryEmail)) {
+        try {
+          const bookNow = await syncNewCarriersFromBookNow(carriers);
+          carriers = [...carriers, ...bookNow.newCarriers];
+          totalNewCarriers.push(...bookNow.newCarriers);
+          totalSkipped += bookNow.skipped.length;
+          totalScanned += bookNow.messagesScanned;
+          userSyncResults.push({ email: primaryEmail, newCarriers: bookNow.newCarriers.length, scanned: bookNow.messagesScanned, ok: true });
+        } catch (err) {
+          userSyncResults.push({ email: primaryEmail, ok: false, error: err.message });
+        }
+      }
+
+      // Step 2: Update existing carriers from rate confirmation threads (primary account)
       const rcResult = await syncCarriersFromGmail(carriers);
       carriers = rcResult.carriers || carriers;
+      totalUpdated = rcResult.gmailSync?.matchedCarriers || 0;
 
-      const synced = await writeState(store, {
-        ...current,
-        carriers,
-        carriersUpdatedAt: nowIso()
-      }, 'gmail_sync');
+      const synced = await writeState(store, { ...current, carriers, carriersUpdatedAt: nowIso() }, 'gmail_sync');
 
       return json(200, {
-        ok: true,
-        configured: true,
-        newCarriers: bookNow.newCarriers.length,
-        newCarrierNames: bookNow.newCarriers.map(c => c.company),
-        skipped: bookNow.skipped.length,
-        updatedFromRateCons: rcResult.gmailSync?.matchedCarriers || 0,
-        messagesScanned: bookNow.messagesScanned + (rcResult.gmailSync?.scannedMessages || 0),
+        ok: true, configured: true,
+        newCarriers: totalNewCarriers.length,
+        newCarrierNames: totalNewCarriers.map(c => c.company),
+        skipped: totalSkipped,
+        updatedFromRateCons: totalUpdated,
+        messagesScanned: totalScanned + (rcResult.gmailSync?.scannedMessages || 0),
+        accountsScanned: userSyncResults.length,
+        userResults: userSyncResults,
         revision: synced.meta.revision,
         carriersUpdatedAt: synced.carriersUpdatedAt
       });
@@ -356,6 +452,137 @@ export default async (request) => {
 
     if (request.method === 'GET' && pathname === '/zapier/status') {
       return json(200, { ...zapierSyncConfigStatus(), timestamp: nowIso() });
+    }
+
+    // ── Auth: GET /auth/google — begin OAuth flow ─────────────────────────────
+    if (request.method === 'GET' && pathname === '/auth/google') {
+      if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+        return redirect('/?auth_error=sso_not_configured');
+      }
+      const state = randomBytes(16).toString('hex');
+      await store.setJSON(`oauth-state-${state}`, { created: Date.now() });
+      const origin = serviceUrl(request);
+      const params = new URLSearchParams({
+        client_id: GOOGLE_CLIENT_ID,
+        redirect_uri: `${origin}/api/auth/callback`,
+        response_type: 'code',
+        scope: 'openid email profile https://www.googleapis.com/auth/gmail.readonly',
+        access_type: 'offline',
+        prompt: 'consent',
+        state
+      });
+      return redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+    }
+
+    // ── Auth: GET /auth/callback — OAuth callback ─────────────────────────────
+    if (request.method === 'GET' && pathname === '/auth/callback') {
+      const url2 = new URL(request.url);
+      const code = url2.searchParams.get('code');
+      const state = url2.searchParams.get('state');
+      const oauthError = url2.searchParams.get('error');
+      if (oauthError) return redirect(`/?auth_error=${encodeURIComponent(oauthError)}`);
+      if (!code || !state) return redirect('/?auth_error=missing_params');
+
+      // Verify CSRF state
+      const storedState = await store.get(`oauth-state-${state}`, { type: 'json' });
+      if (!storedState || (Date.now() - storedState.created) > 10 * 60 * 1000) {
+        return redirect('/?auth_error=invalid_state');
+      }
+      try { await store.delete(`oauth-state-${state}`); } catch {}
+
+      // Exchange code for tokens
+      const origin = serviceUrl(request);
+      const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code, client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET,
+          redirect_uri: `${origin}/api/auth/callback`, grant_type: 'authorization_code'
+        })
+      });
+      const tokens = await tokenRes.json();
+      if (!tokenRes.ok || tokens.error) {
+        return redirect(`/?auth_error=${encodeURIComponent(tokens.error_description || tokens.error || 'token_exchange_failed')}`);
+      }
+
+      // Get Google user info
+      const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+        headers: { Authorization: `Bearer ${tokens.access_token}` }
+      });
+      const userInfo = await userRes.json();
+      if (!userInfo.email) return redirect('/?auth_error=no_email_returned');
+
+      // Enforce domain allowlist
+      const domain = (userInfo.email.split('@')[1] || '').toLowerCase();
+      if (ALLOWED_DOMAINS.length && !ALLOWED_DOMAINS.includes(domain)) {
+        return redirect(`/?auth_error=unauthorized_domain&hint=${encodeURIComponent(userInfo.email)}`);
+      }
+
+      // Load existing user record to preserve refresh token if not re-issued
+      const existingUser = await store.get(`user-${userInfo.email}`, { type: 'json' }) || {};
+      const userData = {
+        email: userInfo.email,
+        name: userInfo.name || userInfo.email,
+        picture: userInfo.picture || '',
+        refreshToken: tokens.refresh_token || existingUser.refreshToken || null,
+        scopes: tokens.scope || existingUser.scopes || '',
+        connectedAt: existingUser.connectedAt || nowIso(),
+        lastSync: existingUser.lastSync || null,
+        updatedAt: nowIso()
+      };
+      await store.setJSON(`user-${userInfo.email}`, userData);
+
+      const cookie = makeSessionCookie(userData);
+      return redirect('/', { 'Set-Cookie': cookie });
+    }
+
+    // ── Auth: GET /auth/me — current session info ─────────────────────────────
+    if (request.method === 'GET' && pathname === '/auth/me') {
+      const sessionUser = getSessionUser(request);
+      if (!sessionUser) return json(200, { authenticated: false });
+      const userData = await store.get(`user-${sessionUser.email}`, { type: 'json' });
+      return json(200, {
+        authenticated: true,
+        user: { email: sessionUser.email, name: sessionUser.name, picture: sessionUser.picture },
+        gmailConnected: !!(userData?.refreshToken),
+        lastSync: userData?.lastSync || null,
+        connectedAt: userData?.connectedAt || null
+      });
+    }
+
+    // ── Auth: POST /auth/logout ───────────────────────────────────────────────
+    if (request.method === 'POST' && pathname === '/auth/logout') {
+      return json(200, { ok: true }, { 'Set-Cookie': clearSessionCookie() });
+    }
+
+    // ── Auth: GET /auth/users — list all connected Gmail accounts ─────────────
+    if (request.method === 'GET' && pathname === '/auth/users') {
+      const sessionUser = getSessionUser(request);
+      if (!sessionUser) return json(401, { error: 'Login required.' });
+      const { blobs } = await store.list({ prefix: 'user-' });
+      const users = await Promise.all(blobs.map(async b => {
+        const u = await store.get(b.key, { type: 'json' });
+        if (!u) return null;
+        return {
+          email: u.email, name: u.name, picture: u.picture,
+          gmailConnected: !!(u.refreshToken),
+          connectedAt: u.connectedAt, lastSync: u.lastSync,
+          isCurrentUser: u.email === sessionUser.email
+        };
+      }));
+      return json(200, { users: users.filter(Boolean), currentUserEmail: sessionUser.email });
+    }
+
+    // ── Auth: DELETE /auth/users/:email — disconnect a Gmail account ──────────
+    if (request.method === 'DELETE' && pathname.startsWith('/auth/users/')) {
+      const sessionUser = getSessionUser(request);
+      if (!sessionUser) return json(401, { error: 'Login required.' });
+      const targetEmail = decodeURIComponent(pathname.slice('/auth/users/'.length));
+      if (!targetEmail) return json(400, { error: 'Missing email.' });
+      // Users can only disconnect themselves (unless we add admin roles later)
+      if (sessionUser.email !== targetEmail) return json(403, { error: 'You can only disconnect your own account.' });
+      await store.delete(`user-${targetEmail}`);
+      return json(200, { ok: true, 'Set-Cookie': clearSessionCookie() }, { 'Set-Cookie': clearSessionCookie() });
     }
 
     return json(404, { error: 'Not found.', route: pathname });
