@@ -339,7 +339,7 @@ export default async (request) => {
         ...current,
         carriers,
         carriersUpdatedAt: nowIso()
-      }, user.email || 'gmail_sync');
+      }, 'gmail_sync');
 
       return json(200, {
         ok: true,
