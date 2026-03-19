@@ -490,9 +490,15 @@ function getFiltered(){
 
 function laneInfo(laneStr){
   var lanes=laneStr||'';
-  var first=lanes.split(' · ')[0].trim();
-  var parts=first.split('→');
-  return {recent:first||'—',orig:(parts[0]||'—').trim(),dest:(parts[1]||'—').trim()};
+  // Try both arrow variants (→ U+2192 and → lookalikes)
+  var first=lanes.split(/\s*[·\u00b7]\s*/)[0].trim();
+  var hasArrow=first.indexOf('\u2192')>=0||first.indexOf('\u2794')>=0||first.indexOf(' \u2192 ')>=0;
+  if(!hasArrow)return{recent:first||'—',orig:'—',dest:'—'};
+  var parts=first.split(/\s*[\u2192\u2794\u27a1]\s*/);
+  var orig=(parts[0]||'').replace(/\s*\([^)]*\)\s*$/,'').trim()||'—';
+  var dest=(parts[1]||'').replace(/\s*\([^)]*\)\s*$/,'').trim()||'—';
+  var recent=orig==='—'?first:(orig+' \u2192 '+dest);
+  return{recent:recent,orig:orig,dest:dest};
 }
 
 function renderTable(){
