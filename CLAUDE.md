@@ -2,9 +2,9 @@
 
 This file is the single source of truth for working on this project. Read it in full before making any changes. It supersedes all previous handoff documents.
 
-**Last updated:** 2026-03-18
-**Current live revision:** 8
-**Current carrier count:** 87 (IDs 101–193)
+**Last updated:** 2026-03-19
+**Current live revision:** 13
+**Current carrier count:** 96 (IDs 101–202)
 
 ---
 
@@ -85,6 +85,8 @@ curl https://carrierdatabasev2.netlify.app/api/health
 ```
 
 **Never edit `state.json` and treat it as live data.** It is only a fallback seed. Pull live state first.
+
+**Always include `carriersUpdatedAt` in every `POST /api/state/sync` payload.** The 3 timestamps shown on the site (`#s-carriers-updated`, `#s-loads-synced`, `#ls-synced`) depend on it. Set it to the current ISO timestamp whenever adding/modifying carriers.
 
 ---
 
