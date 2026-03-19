@@ -621,3 +621,142 @@ export async function syncCarriersFromGmail(carriers) {
     ignoreDomains: config.ignoreDomains
   });
 }
+
+// ── Book Now Dispatch email parser ────────────────────────────────────────────
+// Parses the structured HTML body of "Book Now Dispatch for Load #XXXXXXX" emails
+// sent by noreply@circledelivers.com directly to the dispatcher.
+function parseBookNowEmail(rawBody) {
+  const text = stripHtml(rawBody || '');
+
+  function field(label) {
+    const m = text.match(new RegExp(`^${label}[:\\s]+(.+)$`, 'im'));
+    return m ? m[1].trim() : '';
+  }
+
+  const company   = field('Carrier');
+  const dispatcher = field('Dispatcher');
+  const phone     = field('Phone\\s*#?');
+  const email     = field('Email');
+  const loadId    = field('Load\\s*#?');
+  const customer  = field('Customer');
+
+  // Pickup: City, ST - MM/DD/YYYY from HH:MM - HH:MM  OR  at HH:MM
+  const puM = text.match(/^Pickup:\s*([^,\n]+),\s*([A-Z]{2})\s*-\s*(\d{2}\/\d{2}\/\d{4})\s*(?:from\s*([\d:]+)\s*[-\u2013]\s*([\d:]+)|at\s*([\d:]+))/im);
+  const deM = text.match(/^Delivery:\s*([^,\n]+),\s*([A-Z]{2})\s*-\s*(\d{2}\/\d{2}\/\d{4})\s*(?:from\s*([\d:]+)\s*[-\u2013]\s*([\d:]+)|at\s*([\d:]+))/im);
+
+  function mmddToIso(s) {
+    if (!s) return '';
+    const [m, d, y] = s.split('/');
+    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+
+  if (!company && !dispatcher) return null;
+
+  return {
+    company,
+    dispatcher,
+    phone,
+    email,
+    loadId,
+    customer,
+    origin:        puM ? `${puM[1].trim()}, ${puM[2]}` : '',
+    pickupDate:    puM ? mmddToIso(puM[3]) : '',
+    pickupWindow:  puM ? (puM[4] ? `${puM[4]}\u2013${puM[5]}` : puM[6] || '') : '',
+    dest:          deM ? `${deM[1].trim()}, ${deM[2]}` : '',
+    deliveryDate:  deM ? mmddToIso(deM[3]) : '',
+    deliveryWindow: deM ? (deM[4] ? `${deM[4]}\u2013${deM[5]}` : deM[6] || '') : ''
+  };
+}
+
+// Searches Gmail for Book Now Dispatch emails sent directly to the authenticated user,
+// creates new carrier records for any carrier not already in the database.
+export async function syncNewCarriersFromBookNow(carriers, options = {}) {
+  const config = gmailConfig();
+  if (!config.clientId || !config.clientSecret || !config.refreshToken) {
+    throw new Error('Gmail OAuth is not configured. Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN in Netlify environment variables.');
+  }
+
+  const accessToken = await fetchAccessToken(config);
+  const daysBack = options.daysBack || 30;
+  const query = `from:noreply@circledelivers.com "Book Now Dispatch for Load" to:me newer_than:${daysBack}d`;
+
+  const messageList = await gmailRequest('messages', accessToken, { q: query, maxResults: 100 });
+  const messages = Array.isArray(messageList?.messages) ? messageList.messages : [];
+
+  // Build lookup sets for existing carriers
+  const existingNames  = new Set((carriers || []).map(c => (c.company || '').toLowerCase().trim()));
+  const existingEmails = new Set((carriers || []).flatMap(c => parseEmails(c.email || '')));
+  let maxId = Math.max(100, ...(carriers || []).map(c => Number(c.id) || 0));
+
+  const newCarriers = [];
+  const skipped     = [];
+
+  for (const msg of messages) {
+    if (!msg?.id) continue;
+    const payload = await gmailRequest(`messages/${encodeURIComponent(msg.id)}`, accessToken, { format: 'full' });
+    const body    = extractMessageText(payload);
+    const parsed  = parseBookNowEmail(body);
+    if (!parsed) continue;
+
+    const nameLower   = (parsed.company || '').toLowerCase().trim();
+    const carrierEmails = parseEmails(parsed.email || '');
+    const alreadyExists = existingNames.has(nameLower) || carrierEmails.some(e => existingEmails.has(e));
+
+    if (alreadyExists) {
+      skipped.push(parsed.company);
+      continue;
+    }
+    if (!nameLower) continue;
+
+    maxId++;
+    const carrier = {
+      id:             maxId,
+      company:        parsed.company,
+      mc:             '',
+      dot:            '',
+      equipment:      'Dry Van',
+      hazmat:         'No',
+      safetyRating:   'Not Rated',
+      dispatcher:     parsed.dispatcher,
+      phone:          parsed.phone,
+      afterHours:     '',
+      email:          parsed.email,
+      preferredLanes: parsed.origin && parsed.dest ? `${parsed.origin} \u2192 ${parsed.dest}` : '',
+      homeBase:       '',
+      address:        '',
+      avgRate:        0,
+      insurance:      '',
+      loadsCompleted: 0,
+      otPickup:       0,
+      otDelivery:     0,
+      claims:         0,
+      status:         'Active',
+      score:          50,
+      region:         '',
+      lastActive:     parsed.pickupDate || nowIso().slice(0, 10),
+      notes:          parsed.loadId
+        ? `Load #${parsed.loadId}: ${parsed.origin} \u2192 ${parsed.dest}, ${parsed.pickupDate}, customer: ${parsed.customer}`
+        : '',
+      issueFlag:      false,
+      loadHistory:    parsed.loadId ? [{
+        load:           parsed.loadId,
+        date:           parsed.pickupDate,
+        origin:         parsed.origin,
+        dest:           parsed.dest,
+        pickupWindow:   parsed.pickupWindow,
+        deliveryDate:   parsed.deliveryDate,
+        deliveryWindow: parsed.deliveryWindow,
+        customer:       parsed.customer,
+        refNumber:      '',
+        status:         'Completed'
+      }] : [],
+      sources: [{ type: 'gmail', label: 'Gmail \u00b7 Book Now Dispatch' }]
+    };
+
+    newCarriers.push(carrier);
+    existingNames.add(nameLower);
+    carrierEmails.forEach(e => existingEmails.add(e));
+  }
+
+  return { newCarriers, skipped, messagesScanned: messages.length };
+}

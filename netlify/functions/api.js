@@ -2,6 +2,12 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getStore } from '@netlify/blobs';
+import {
+  gmailSyncConfigStatus,
+  zapierSyncConfigStatus,
+  syncCarriersFromGmail,
+  syncNewCarriersFromBookNow
+} from './gmail-sync-lib.js';
 
 const functionFilename = fileURLToPath(import.meta.url);
 const functionDir = path.dirname(functionFilename);
@@ -298,6 +304,58 @@ export default async (request) => {
           'access-control-allow-origin': '*'
         }
       });
+    }
+
+    if (request.method === 'GET' && pathname === '/gmail/status') {
+      return json(200, { ...gmailSyncConfigStatus(), zapier: zapierSyncConfigStatus(), timestamp: nowIso() });
+    }
+
+    if (request.method === 'POST' && pathname === '/gmail/sync') {
+      const secret = process.env.GMAIL_SYNC_SECRET || '';
+      const provided = request.headers.get('x-gmail-sync-secret') || '';
+      if (secret && secret !== provided) return json(401, { error: 'Unauthorized.' });
+
+      const configStatus = gmailSyncConfigStatus();
+      if (!configStatus.configured) {
+        return json(200, {
+          ok: false,
+          configured: false,
+          message: 'Gmail sync is not configured. Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN in the Netlify dashboard → Site configuration → Environment variables.'
+        });
+      }
+
+      const current = await getState(store);
+      let carriers = clone(current.carriers || []);
+
+      // Step 1: Create new carriers from Book Now Dispatch emails (to:me)
+      const bookNow = await syncNewCarriersFromBookNow(carriers);
+      carriers = [...carriers, ...bookNow.newCarriers];
+
+      // Step 2: Update existing carriers from rate confirmation threads
+      const rcResult = await syncCarriersFromGmail(carriers);
+      carriers = rcResult.carriers || carriers;
+
+      const synced = await writeState(store, {
+        ...current,
+        carriers,
+        carriersUpdatedAt: nowIso()
+      }, user.email || 'gmail_sync');
+
+      return json(200, {
+        ok: true,
+        configured: true,
+        newCarriers: bookNow.newCarriers.length,
+        newCarrierNames: bookNow.newCarriers.map(c => c.company),
+        skipped: bookNow.skipped.length,
+        updatedFromRateCons: rcResult.gmailSync?.matchedCarriers || 0,
+        messagesScanned: bookNow.messagesScanned + (rcResult.gmailSync?.scannedMessages || 0),
+        revision: synced.meta.revision,
+        carriersUpdatedAt: synced.carriersUpdatedAt
+      });
+    }
+
+    if (request.method === 'GET' && pathname === '/zapier/status') {
+      return json(200, { ...zapierSyncConfigStatus(), timestamp: nowIso() });
     }
 
     return json(404, { error: 'Not found.', route: pathname });

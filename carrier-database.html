@@ -1655,11 +1655,35 @@ function triggerCarrierSync() {
   if (!btn || btn.classList.contains('syncing')) return;
   btn.classList.add('syncing');
   btn.textContent = '⟳ Syncing…';
-  fetchLiveState(function(ok) {
+  if (typeof fetch === 'undefined') {
     btn.classList.remove('syncing');
     btn.textContent = '⟳ Carrier Sync';
-    showToast(ok ? 'Synced with live database' : 'Could not reach server — showing cached data');
-  });
+    showToast('Could not reach server — showing cached data');
+    return;
+  }
+  fetch('/api/gmail/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(gmailResult) {
+      if (gmailResult && gmailResult.ok && gmailResult.newCarriers > 0) {
+        showToast('Gmail sync: ' + gmailResult.newCarriers + ' new carrier' + (gmailResult.newCarriers === 1 ? '' : 's') + ' added');
+      } else if (gmailResult && gmailResult.ok) {
+        showToast('Gmail sync complete — no new carriers');
+      } else if (gmailResult && gmailResult.configured === false) {
+        showToast('Gmail not configured — refreshing data only');
+      }
+      fetchLiveState(function(ok) {
+        btn.classList.remove('syncing');
+        btn.textContent = '⟳ Carrier Sync';
+        if (!gmailResult) showToast(ok ? 'Synced with live database' : 'Could not reach server — showing cached data');
+      });
+    })
+    .catch(function() {
+      fetchLiveState(function(ok) {
+        btn.classList.remove('syncing');
+        btn.textContent = '⟳ Carrier Sync';
+        showToast(ok ? 'Synced with live database' : 'Could not reach server — showing cached data');
+      });
+    });
 }
 // Auto-poll every 30 seconds to keep timestamps current
 setInterval(fetchLiveState, 30000);
