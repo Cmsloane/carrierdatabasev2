@@ -1856,9 +1856,9 @@ renderLoads=function(){
 // ════════════════════════════════════════════════════════════════════
 // FEATURE: Margin breakdown in load detail panel
 // ════════════════════════════════════════════════════════════════════
-var _origSelectLoad=selectLoad;
+var _origSelectLoad1=selectLoad;
 selectLoad=function(id){
-  _origSelectLoad(id);
+  _origSelectLoad1(id);
   var l=(loadsData.loads||[]).find(function(x){return x.load_id===id;});
   if(!l)return;
   var spread=marginSpread(l);
@@ -2264,9 +2264,9 @@ function getTopMatchedCarriers(load, n) {
 }
 
 // ── Patch selectLoad to show matched carriers ──────────────
-var _origSelectLoad=selectLoad;
+var _origSelectLoad2=selectLoad;
 selectLoad=function(id){
-  _origSelectLoad(id);
+  _origSelectLoad2(id);
   var l=(loadsData.loads||[]).find(function(x){return x.load_id===id;});
   var sec=document.getElementById('ldp-carriers-section');
   var cnt=document.getElementById('ldp-carriers-count');
