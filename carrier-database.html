@@ -267,13 +267,77 @@ body.show-loads #loads-table-wrap{display:block}
   #sync-result-panel{width:calc(100% - 24px);left:12px;right:12px}
 
   /* Panel body padding */
-  .panel-body{padding:16px}
-  .panel-header{padding:14px 16px}
+  .panel-body{padding:14px}
+  .panel-header{padding:12px 14px;gap:8px}
+
+  /* Panel title + action buttons on mobile */
+  .panel-title{font-size:15px}
+  .panel-mc{font-size:11px}
+  .panel-btns{gap:5px;flex-wrap:wrap;justify-content:flex-end;max-width:140px}
+  .action-btn{font-size:10px;padding:3px 8px}
+  .edit-btn{font-size:11px;padding:5px 10px}
 
   /* Perf grid — 3 cols still fits */
   .perf-grid{gap:6px}
   .perf-val{font-size:15px}
+
+  /* Notes textarea full width */
+  .notes-edit{min-height:60px;font-size:12px}
+  .avail-input{font-size:12px}
+
+  /* Export CSV button — icon only on mobile */
+  .export-btn .export-label{display:none}
+
+  /* Carrier match cards — tap friendly */
+  .carrier-match-card{padding:10px}
+  .cmc-call,.cmc-highway{padding:8px 12px;font-size:12px}
+
+  /* DNU banner */
+  .dnu-banner{font-size:11px;padding:8px 12px}
 }
+
+/* ── Quick action link buttons ──────────────────────────────── */
+.action-btn{background:transparent;border:1px solid rgba(255,255,255,0.1);color:#8a9aaa;font-size:11px;padding:4px 10px;border-radius:5px;cursor:pointer;font-family:inherit;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;gap:4px;line-height:1.4}
+.action-btn:hover{background:rgba(255,255,255,0.08);color:#e8e8e0;border-color:rgba(255,255,255,0.25)}
+.action-btn.highway{border-color:rgba(122,74,255,0.35);color:#9a6aff}
+.action-btn.highway:hover{background:rgba(122,74,255,0.12);border-color:rgba(122,74,255,0.6)}
+.action-btn.fmcsa{border-color:rgba(26,122,74,0.35);color:#4acc7a}
+.action-btn.fmcsa:hover{background:rgba(26,122,74,0.1);border-color:rgba(26,122,74,0.6)}
+/* ── Editable notes textarea ────────────────────────────────── */
+.notes-edit{width:100%;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:12px 14px;color:#9aaab8;font-size:13px;font-family:'DM Sans',sans-serif;line-height:1.7;resize:vertical;min-height:72px;outline:none;transition:border-color 0.15s;box-sizing:border-box}
+.notes-edit:focus{border-color:rgba(232,65,42,0.3);color:#c8cdd6}
+.save-indicator{font-size:10px;font-weight:600;opacity:0;transition:opacity 0.4s;margin-left:6px;letter-spacing:0.3px}
+.save-indicator.show{opacity:1}
+.save-indicator.ok{color:#4acc7a}
+.save-indicator.err{color:#cc7a7a}
+/* ── Availability input ─────────────────────────────────────── */
+.avail-input{width:100%;background:#1a2030;border:1px solid rgba(255,255,255,0.07);border-radius:6px;padding:7px 10px;color:#c8cdd6;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box}
+.avail-input:focus{border-color:rgba(232,65,42,0.3)}
+/* ── Export CSV button ──────────────────────────────────────── */
+.export-btn{background:transparent;border:1px solid rgba(255,255,255,0.1);color:#6a8aaa;font-size:12px;padding:7px 12px;border-radius:7px;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:5px;flex-shrink:0;white-space:nowrap}
+.export-btn:hover{background:rgba(255,255,255,0.06);color:#e8e8e0;border-color:rgba(255,255,255,0.22)}
+/* ── Carrier match cards in load detail ─────────────────────── */
+#ldp-carriers-section .section-label{color:#7a4aff;border-bottom-color:rgba(122,74,255,0.2)}
+.carrier-match-card{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:10px 12px;margin-bottom:7px;display:flex;align-items:center;gap:10px}
+.carrier-match-card:last-child{margin-bottom:0}
+.cmc-info{flex:1;min-width:0}
+.cmc-name{font-size:13px;font-weight:600;color:#e8e8e0;cursor:pointer;display:block}
+.cmc-name:hover{color:#4a9eff}
+.cmc-meta{font-size:11px;color:#5a6a7a;margin-top:2px;font-family:'DM Mono',monospace}
+.cmc-match{font-size:10px;font-weight:700;letter-spacing:0.4px;padding:2px 7px;border-radius:10px;white-space:nowrap;margin-top:3px;display:inline-block}
+.cmc-match.strong{color:#1a7a4a;background:rgba(26,122,74,0.15);border:1px solid rgba(26,122,74,0.3)}
+.cmc-match.good{color:#2a6fa8;background:rgba(42,111,168,0.12);border:1px solid rgba(42,111,168,0.3)}
+.cmc-match.possible{color:#4a5a6a;background:rgba(74,90,106,0.1);border:1px dashed #2a3a4a}
+.cmc-call{background:rgba(26,122,74,0.12);border:1px solid rgba(26,122,74,0.25);color:#4acc7a;font-size:11px;font-weight:700;padding:6px 10px;border-radius:6px;text-decoration:none;white-space:nowrap;flex-shrink:0;display:inline-block}
+.cmc-call:hover{background:rgba(26,122,74,0.25)}
+.cmc-highway{background:rgba(122,74,255,0.1);border:1px solid rgba(122,74,255,0.25);color:#9a6aff;font-size:11px;font-weight:700;padding:6px 10px;border-radius:6px;text-decoration:none;white-space:nowrap;flex-shrink:0;display:inline-block}
+.cmc-highway:hover{background:rgba(122,74,255,0.2)}
+/* ── Performance trend ──────────────────────────────────────── */
+.trend-up{color:#4acc7a;font-size:12px;margin-left:3px;vertical-align:middle}
+.trend-down{color:#cc4a4a;font-size:12px;margin-left:3px;vertical-align:middle}
+.trend-flat{color:#6a7a8a;font-size:12px;margin-left:3px;vertical-align:middle}
+/* ── DNU banner ─────────────────────────────────────────────── */
+.dnu-banner{background:rgba(192,57,43,0.1);border:1px solid rgba(192,57,43,0.3);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#e86050;line-height:1.5}
 </style>
 <script async src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
@@ -318,6 +382,7 @@ body.show-loads #loads-table-wrap{display:block}
   <select class="filter-select" id="region-filter" onchange="renderTable()"><option value="">Region: All</option><option>Northeast</option><option>Southeast</option><option>Midwest</option><option>South</option><option>West</option><option>Cross-Country</option></select>
   <select class="filter-select" id="match-filter" onchange="renderTable()"><option value="">Match: All</option><option value="strong">Strong Fit</option><option value="any">Any Match</option><option value="none">No Match</option></select>
   <span id="result-count" class="stat-lbl"></span>
+  <button class="export-btn" onclick="exportCSV()" title="Export current filtered list to CSV">↓ CSV</button>
 </div>
 
 <!-- ═══ LOADS VIEW ═══════════════════════════════════════════════════════ -->
@@ -418,6 +483,10 @@ body.show-loads #loads-table-wrap{display:block}
       <div class="section-label">Notes / Requirements</div>
       <div class="notes-box" id="ldp-notes"></div>
     </div>
+    <div class="section" id="ldp-carriers-section" style="display:none">
+      <div class="section-label">Best Carrier Matches <span id="ldp-carriers-count" style="font-size:11px;font-weight:400;color:#7a4aff;margin-left:6px"></span></div>
+      <div id="ldp-carriers"></div>
+    </div>
   </div>
 </div>
 
@@ -439,9 +508,15 @@ body.show-loads #loads-table-wrap{display:block}
       </div>
       <div class="panel-mc" id="p-mc"></div>
     </div>
-    <div class="panel-btns"><button class="edit-btn" onclick="editSelected()">Edit</button><button class="close-btn" onclick="closePanel()">✕</button></div>
+    <div class="panel-btns">
+      <a id="p-highway-btn" class="action-btn highway" href="#" target="_blank" rel="noopener" onclick="return openHighwayProfile(this)" title="View on Highway.com" style="display:none">⬡ Highway</a>
+      <a id="p-fmcsa-btn" class="action-btn fmcsa" href="#" target="_blank" rel="noopener" onclick="return openFMCSA(this)" title="FMCSA Safety Record" style="display:none">FMCSA</a>
+      <button class="edit-btn" onclick="editSelected()">Edit</button>
+      <button class="close-btn" onclick="closePanel()">✕</button>
+    </div>
   </div>
   <div class="panel-body">
+    <div class="dnu-banner" id="p-dnu-banner" style="display:none">⛔ <strong>Do Not Use</strong> — This carrier is flagged. Review the issue notes before proceeding.</div>
     <div class="panel-status-row"><span id="p-status-badge" class="status-badge"></span><span id="p-issue-badge" style="display:none;margin-left:8px"></span><div class="score-wrap" style="flex:1;margin-left:8px"><div class="score-track"><div class="score-fill" id="p-score-fill"></div></div><span class="score-num" id="p-score-num"></span></div></div>
     <div class="section"><div class="section-label">Contact</div>
       <div class="field-row"><span class="field-label">Dispatcher</span><span class="field-val" id="p-dispatcher"></span></div>
@@ -463,14 +538,21 @@ body.show-loads #loads-table-wrap{display:block}
     </div>
     <div class="section"><div class="section-label">Performance</div>
       <div class="perf-grid">
-        <div class="perf-card"><div class="perf-val" id="p-loads"></div><div class="perf-lbl">Loads</div></div>
+        <div class="perf-card"><div class="perf-val" id="p-loads"></div><span id="p-trend" class="trend-flat" title="Performance trend based on recent load history"></span><div class="perf-lbl">Loads</div></div>
         <div class="perf-card"><div class="perf-val" id="p-otpu"></div><div class="perf-lbl">OT Pickup</div></div>
         <div class="perf-card"><div class="perf-val" id="p-otdel"></div><div class="perf-lbl">OT Delivery</div></div>
       </div>
       <div class="field-row"><span class="field-label">Claims / Issues</span><span class="field-val" id="p-claims"></span></div>
       <div class="field-row"><span class="field-label">Last Active</span><span class="field-val" id="p-lastactive"></span></div>
     </div>
-    <div class="section" id="p-notes-section"><div class="section-label">Notes & Intel</div><div class="notes-box" id="p-notes"></div></div>
+    <div class="section" id="p-notes-section">
+      <div class="section-label">Notes &amp; Intel <span class="save-indicator" id="p-notes-indicator"></span></div>
+      <textarea class="notes-edit" id="p-notes" placeholder="Add notes about this carrier…" onblur="saveCarrierField('notes', this.value)" rows="4"></textarea>
+    </div>
+    <div class="section">
+      <div class="section-label">Availability <span class="save-indicator" id="p-avail-indicator"></span></div>
+      <input class="avail-input" id="p-avail" placeholder="e.g. Available Mon–Wed, running Southeast this week…" onblur="saveCarrierField('availability', this.value)">
+    </div>
     <div class="section" id="p-loadhistory-section"><div class="section-label">Load History <span id="p-lh-count" style="font-size:11px;font-weight:400;color:#4a5a6a;margin-left:6px"></span></div><div id="p-loadhistory"></div></div>
     <div class="section" id="p-sources-section"><div class="section-label">Data Sources &amp; Audit</div><div id="p-sources"></div></div>
     <div class="section pitch-section" id="p-pitch-section" style="display:none">
@@ -610,8 +692,32 @@ function selectCarrier(id){
   document.getElementById('p-loads').textContent=c.loadsCompleted;document.getElementById('p-otpu').textContent=c.otPickup+'%';
   document.getElementById('p-otdel').textContent=c.otDelivery+'%';document.getElementById('p-claims').textContent=c.claims||'None';
   document.getElementById('p-lastactive').textContent=val(c.lastActive);
+  // Notes (editable textarea — always visible)
+  var pnEl=document.getElementById('p-notes');if(pnEl)pnEl.value=c.notes||'';
+  // Availability
+  var paEl=document.getElementById('p-avail');if(paEl)paEl.value=c.availability||'';
+  // Highway & FMCSA buttons
+  var mcNum=(c.mc||'').replace(/^MC-/i,'').trim();
+  var dotNum=(c.dot||'').replace(/^DOT-/i,'').trim();
+  var hwyBtn=document.getElementById('p-highway-btn');
+  if(hwyBtn){hwyBtn.href=mcNum?'https://highway.com/broker/carriers/search-results?q='+encodeURIComponent(mcNum):'#';hwyBtn.style.display=mcNum?'inline-flex':'none';}
+  var fmcsaBtn=document.getElementById('p-fmcsa-btn');
+  if(fmcsaBtn){var fParam=dotNum||mcNum;fmcsaBtn.href=fParam?'https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param='+(dotNum?'USDOT':'MC_MX')+'&query_string='+encodeURIComponent(fParam):'#';fmcsaBtn.style.display=fParam?'inline-flex':'none';}
+  // DNU banner
+  var dnuBanner=document.getElementById('p-dnu-banner');
+  if(dnuBanner)dnuBanner.style.display=c.status==='Do Not Use'?'block':'none';
+  // Performance trend (based on last 5 loads in history)
+  var lhAll=c.loadHistory||[];var recentIssues=0;
+  lhAll.slice(-5).forEach(function(h){if(h.status&&(h.status.toLowerCase().includes('late')||h.status.toLowerCase().includes('issue')||h.status.toLowerCase().includes('escalat')))recentIssues++;});
+  var trendEl=document.getElementById('p-trend');
+  if(trendEl){
+    if(lhAll.length<2){trendEl.textContent='';trendEl.title='';}
+    else if(recentIssues===0){trendEl.textContent='↑';trendEl.className='trend-up';trendEl.title='Clean record in last '+Math.min(lhAll.length,5)+' loads';}
+    else if(recentIssues>=2){trendEl.textContent='↓';trendEl.className='trend-down';trendEl.title=recentIssues+' service issues in last 5 loads';}
+    else{trendEl.textContent='→';trendEl.className='trend-flat';trendEl.title='1 issue in last 5 loads';}
+  }
   const ns=document.getElementById('p-notes-section');
-  if(c.notes){ns.style.display='block';document.getElementById('p-notes').textContent=c.notes;}else{ns.style.display='none';}
+  if(ns)ns.style.display='block';
 
   // ── Load History ──────────────────────────────────────────────────────────
   const lhEl=document.getElementById('p-loadhistory');
@@ -753,7 +859,14 @@ function jumpToLoad(loadId, fallbackUrl){
   }
 }
 function closePanel(){selectedId=null;document.getElementById('detail-panel').classList.remove('open');document.getElementById('table-wrap').style.marginRight='0';renderTable();}
-function editSelected(){const c=carriers.find(x=>x.id===selectedId);if(c)openModal(c);}
+function editSelected(){
+  const c=carriers.find(x=>x.id===selectedId);
+  if(!c)return;
+  if(c.status==='Do Not Use'){
+    if(!confirm('⚠ '+c.company+' is marked Do Not Use.\n\nAre you sure you want to edit this carrier?'))return;
+  }
+  openModal(c);
+}
 
 function openModal(c){
   editingId=c?c.id:null;
@@ -1817,6 +1930,121 @@ setInterval(fetchLiveState, 30000);
 // Fetch on load
 fetchLiveState();
 updateStats();renderTable();updateLoadsStats();computeAllMatches();
+
+// ── Highway.com profile opener ─────────────────────────────
+function openHighwayProfile(el) {
+  var c=carriers.find(function(x){return x.id===selectedId;});
+  var mcNum=((c&&c.mc)||'').replace(/^MC-/i,'').trim();
+  if(!mcNum){alert('No MC number on file for this carrier.');return false;}
+  el.href='https://highway.com/broker/carriers/search-results?q='+encodeURIComponent(mcNum);
+  return true;
+}
+// ── FMCSA SAFER lookup opener ──────────────────────────────
+function openFMCSA(el) {
+  var c=carriers.find(function(x){return x.id===selectedId;})||{};
+  var dot=((c.dot)||'').replace(/^DOT-/i,'').trim();
+  var mc=((c.mc)||'').replace(/^MC-/i,'').trim();
+  if(!dot&&!mc){alert('No MC or DOT number on file for this carrier.');return false;}
+  el.href='https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param='+(dot?'USDOT':'MC_MX')+'&query_string='+encodeURIComponent(dot||mc);
+  return true;
+}
+
+// ── Export filtered carriers to CSV ───────────────────────
+function exportCSV() {
+  var cols=['id','company','mc','dot','equipment','status','score','dispatcher','phone','email','afterHours','preferredLanes','homeBase','region','avgRate','loadsCompleted','otPickup','otDelivery','claims','lastActive','notes','availability'];
+  var hdrs=['ID','Company','MC','DOT','Equipment','Status','Score','Dispatcher','Phone','Email','After Hours','Preferred Lanes','Home Base','Region','Avg Rate','Loads','OT Pickup %','OT Delivery %','Claims','Last Active','Notes','Availability'];
+  var rows=[hdrs.join(',')];
+  getFiltered().forEach(function(c){
+    rows.push(cols.map(function(k){var v=c[k]!=null?String(c[k]):'';return '"'+v.replace(/"/g,'""')+'"';}).join(','));
+  });
+  var blob=new Blob([rows.join('\n')],{type:'text/csv'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='carriers-'+(new Date().toISOString().slice(0,10))+'.csv';
+  a.click();URL.revokeObjectURL(a.href);
+  showToast('Exported '+getFiltered().length+' carriers to CSV');
+}
+
+// ── Save a single carrier field inline via PATCH ───────────
+function saveCarrierField(field, value) {
+  var c=carriers.find(function(x){return x.id===selectedId;});
+  if(!c)return;
+  if(c[field]===value)return; // no change
+  c[field]=value;
+  var indId=field==='notes'?'p-notes-indicator':'p-avail-indicator';
+  var ind=document.getElementById(indId);
+  var body={};body[field]=value;
+  fetch('/api/carriers/'+c.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){return r.ok?r.json():null;})
+    .then(function(result){
+      if(ind){ind.textContent=result?'Saved ✓':'Error';ind.className='save-indicator show '+(result?'ok':'err');clearTimeout(ind._t);ind._t=setTimeout(function(){ind.classList.remove('show');},2500);}
+    })
+    .catch(function(){
+      if(ind){ind.textContent='Error';ind.className='save-indicator show err';clearTimeout(ind._t);ind._t=setTimeout(function(){ind.classList.remove('show');},2500);}
+    });
+}
+
+// ── Get top N matched carriers for a load ─────────────────
+function getTopMatchedCarriers(load, n) {
+  if(!load)return[];
+  var pu=(load.pickup_state||'').toLowerCase();
+  var del=(load.delivery_state||'').toLowerCase();
+  var puCity=(load.pickup_city||'').toLowerCase();
+  var delCity=(load.delivery_city||'').toLowerCase();
+  var equip=(load.equipment||'').toLowerCase();
+  var scored=carriers.filter(function(c){return c.status!=='Do Not Use';}).map(function(c){
+    var pairs=getCarrierStatePairs(c);
+    var matchType='none';
+    var equipMatch=!equip||!c.equipment||(c.equipment.toLowerCase().includes(equip.split(' ')[0]));
+    for(var i=0;i<pairs.length;i++){
+      var p=pairs[i];
+      if(p.orig.toLowerCase()===pu&&p.dest.toLowerCase()===del){matchType='strong';break;}
+      else if(p.orig.toLowerCase()===pu||p.dest.toLowerCase()===del){if(matchType!=='strong')matchType='good';}
+      else if(matchType==='none'){
+        var lanes=(c.preferredLanes||'').toLowerCase();
+        if((pu&&lanes.includes(pu))||(del&&lanes.includes(del))||(puCity&&lanes.includes(puCity))||(delCity&&lanes.includes(delCity)))matchType='possible';
+      }
+    }
+    return{carrier:c,matchType:matchType,equipMatch:equipMatch};
+  }).filter(function(x){return x.matchType!=='none';});
+  var order={strong:0,good:1,possible:2};
+  scored.sort(function(a,b){return order[a.matchType]-order[b.matchType]||(b.carrier.score-a.carrier.score);});
+  return scored.slice(0,n||5);
+}
+
+// ── Patch selectLoad to show matched carriers ──────────────
+var _origSelectLoad=selectLoad;
+selectLoad=function(id){
+  _origSelectLoad(id);
+  var l=(loadsData.loads||[]).find(function(x){return x.load_id===id;});
+  var sec=document.getElementById('ldp-carriers-section');
+  var cnt=document.getElementById('ldp-carriers-count');
+  var cont=document.getElementById('ldp-carriers');
+  if(!sec||!cont)return;
+  var matches=getTopMatchedCarriers(l,5);
+  if(!matches.length){sec.style.display='none';return;}
+  sec.style.display='block';
+  if(cnt)cnt.textContent='('+matches.length+' found)';
+  cont.innerHTML=matches.map(function(m){
+    var c=m.carrier;
+    var mcNum=(c.mc||'').replace(/^MC-/i,'').trim();
+    var phoneRaw=c.phone?c.phone.replace(/[^\d+]/g,''):'';
+    var hwyHref=mcNum?'https://highway.com/broker/carriers/search-results?q='+encodeURIComponent(mcNum):'';
+    var scoreColor=c.score>=80?'#4acc7a':c.score>=60?'#e8c44a':'#cc6a4a';
+    return '<div class="carrier-match-card">'
+      +'<div class="cmc-info">'
+      +'<span class="cmc-name" onclick="switchView(\'carriers\');selectCarrier('+c.id+')">'+c.company+'</span>'
+      +'<div class="cmc-meta">'+(c.mc||'MC pending')+(c.equipment?' · '+c.equipment:'')+'</div>'
+      +'<span class="cmc-match '+m.matchType+'">'+m.matchType.toUpperCase()+'</span>'
+      +'<span style="font-size:10px;color:'+scoreColor+';margin-left:6px">Score '+c.score+'</span>'
+      +'</div>'
+      +'<div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end">'
+      +(c.phone?'<a class="cmc-call" href="tel:'+phoneRaw+'">📞 Call</a>':'')
+      +(hwyHref?'<a class="cmc-highway" href="'+hwyHref+'" target="_blank" rel="noopener">Highway</a>':'')
+      +'</div>'
+      +'</div>';
+  }).join('');
+};
 </script>
 </body>
 </html>
