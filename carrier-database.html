@@ -1965,6 +1965,18 @@ function showSyncResult(gmailResult) {
   var html = '';
   if (!gmailResult) {
     html = '<div class="srp-error">⚠ Could not reach server</div>';
+  } else if (gmailResult.dbRefresh) {
+    html += '<div class="srp-body">';
+    if (gmailResult.newCarriers > 0) {
+      html += '<div class="srp-row"><span class="srp-val srp-new">+' + gmailResult.newCarriers + '</span><span class="srp-lbl">new carriers detected</span></div>';
+    }
+    if (gmailResult.newLoads > 0) {
+      html += '<div class="srp-row"><span class="srp-val srp-updated">+' + gmailResult.newLoads + '</span><span class="srp-lbl">new loads detected</span></div>';
+    }
+    html += '<div class="srp-row"><span class="srp-val srp-scanned">' + gmailResult.carrierCount + '</span><span class="srp-lbl">total carriers</span></div>';
+    html += '<div class="srp-row"><span class="srp-val srp-scanned">' + gmailResult.loadsCount + '</span><span class="srp-lbl">active loads</span></div>';
+    html += '<div class="srp-row"><span class="srp-val" style="color:#8a9aaa;font-size:11px">rev&nbsp;' + gmailResult.revision + '</span><span class="srp-lbl">database revision</span></div>';
+    html += '</div>';
   } else if (gmailResult.configured === false) {
     html = '<div class="srp-notconfigured">Gmail OAuth is not configured.<br>Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN in Netlify environment variables.</div>';
   } else if (gmailResult.error) {
@@ -1987,9 +1999,7 @@ function showSyncResult(gmailResult) {
   content.innerHTML = html;
   panel.classList.add('show');
   clearTimeout(panel._timer);
-  if (!gmailResult || gmailResult.configured === false || gmailResult.error) {
-    panel._timer = setTimeout(function() { panel.classList.remove('show'); }, 8000);
-  }
+  panel._timer = setTimeout(function() { panel.classList.remove('show'); }, (!gmailResult || gmailResult.configured === false || gmailResult.error) ? 8000 : 5000);
 }
 function triggerCarrierSync() {
   var btn = document.getElementById('carrier-sync-btn');
@@ -2000,26 +2010,26 @@ function triggerCarrierSync() {
   if (panel) panel.classList.remove('show');
   if (typeof fetch === 'undefined') {
     btn.classList.remove('syncing');
-    btn.textContent = '⟳ Carrier Sync';
+    btn.innerHTML = '⟳ <span class="btn-label">Carrier Sync</span>';
     showSyncResult(null);
     return;
   }
-  fetch('/api/gmail/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
-    .then(function(r) { return r.ok ? r.json() : null; })
-    .then(function(gmailResult) {
-      showSyncResult(gmailResult);
-      fetchLiveState(function() {
-        btn.classList.remove('syncing');
-        btn.textContent = '⟳ Carrier Sync';
-      });
-    })
-    .catch(function() {
-      showSyncResult(null);
-      fetchLiveState(function() {
-        btn.classList.remove('syncing');
-        btn.textContent = '⟳ Carrier Sync';
-      });
+  var prevCarrierCount = carriers.length;
+  var prevLoadsCount = ((loadsData && loadsData.loads) || []).length;
+  fetchLiveState(function(ok) {
+    btn.classList.remove('syncing');
+    btn.innerHTML = '⟳ <span class="btn-label">Carrier Sync</span>';
+    if (!ok) { showSyncResult(null); return; }
+    var loadsArr = (loadsData && loadsData.loads) || [];
+    showSyncResult({
+      dbRefresh: true,
+      carrierCount: carriers.length,
+      newCarriers: Math.max(0, carriers.length - prevCarrierCount),
+      loadsCount: loadsArr.length,
+      newLoads: Math.max(0, loadsArr.length - prevLoadsCount),
+      revision: _liveRevision
     });
+  });
 }
 // Auto-poll every 30 seconds to keep timestamps current
 setInterval(fetchLiveState, 30000);
