@@ -817,7 +817,9 @@ function getFiltered(){
   const st=document.getElementById('status-filter').value;
   const rg=document.getElementById('region-filter').value;
   let list=carriers.filter(c=>{
-    const mQ=!q||[c.company,c.mc,c.dot,c.dispatcher,c.homeBase,c.preferredLanes,c.email,c.phone,c.notes,c.lastActive].some(f=>f&&f.toLowerCase().includes(q));
+    let mQ=!q||[c.company,c.mc,c.dot,c.dispatcher,c.homeBase,c.preferredLanes,c.email,c.phone,c.notes,c.lastActive,c.address,c.availability].some(f=>f&&f.toLowerCase().includes(q));
+    // Also search load history (load IDs and customers)
+    if(!mQ&&q&&c.loadHistory){mQ=(c.loadHistory||[]).some(function(h){return(h.load_id&&String(h.load_id).includes(q))||(h.load&&String(h.load).includes(q))||(h.customer&&h.customer.toLowerCase().includes(q))||(h.route&&h.route.toLowerCase().includes(q));});}
     const mE=!eq||c.equipment.toLowerCase().includes(eq)||(eq==='hazmat'&&c.hazmat==='Yes');
     const mS=!st||c.status===st;
     const mR=!rg||c.region===rg;
@@ -2319,8 +2321,8 @@ function openFMCSA(el) {
 
 // ── Export filtered carriers to CSV ───────────────────────
 function exportCSV() {
-  var cols=['id','company','mc','dot','equipment','status','score','dispatcher','phone','email','afterHours','preferredLanes','homeBase','region','avgRate','loadsCompleted','otPickup','otDelivery','claims','lastActive','notes','availability'];
-  var hdrs=['ID','Company','MC','DOT','Equipment','Status','Score','Dispatcher','Phone','Email','After Hours','Preferred Lanes','Home Base','Region','Avg Rate','Loads','OT Pickup %','OT Delivery %','Claims','Last Active','Notes','Availability'];
+  var cols=['id','company','mc','dot','equipment','status','score','dispatcher','phone','email','afterHours','preferredLanes','homeBase','region','avgRate','loadsCompleted','otPickup','otDelivery','claims','lastActive','lastContactedDate','notes','availability'];
+  var hdrs=['ID','Company','MC','DOT','Equipment','Status','Score','Dispatcher','Phone','Email','After Hours','Preferred Lanes','Home Base','Region','Avg Rate','Loads','OT Pickup %','OT Delivery %','Claims','Last Active','Last Contacted','Notes','Availability'];
   var rows=[hdrs.join(',')];
   getFiltered().forEach(function(c){
     rows.push(cols.map(function(k){var v=c[k]!=null?String(c[k]):'';return '"'+v.replace(/"/g,'""')+'"';}).join(','));
@@ -2675,6 +2677,9 @@ selectLoad=function(id){
       +'</div>';
   }).join('');
 };
+
+// Re-run updateStats now that needsOutreach is defined
+if(typeof updateStats === 'function') updateStats();
 </script>
 </body>
 </html>
