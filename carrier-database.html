@@ -457,7 +457,7 @@ body.show-loads #loads-table-wrap{display:block}
   <button class="tab-btn" id="tab-loads" onclick="switchView('loads')">Loads <span class="tab-count" id="tab-loads-count">0</span></button>
 </div>
   <div class="sync-badge" id="live-sync-badge"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#e8412a" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg><span id="live-sync-label">Synced · Mar 19, 2026</span></div>
-  <button id="carrier-sync-btn" onclick="triggerCarrierSync()" title="Fetch latest carriers and loads from the live database">⟳ <span class="btn-label">Carrier Sync</span></button>
+  <button id="carrier-sync-btn" onclick="triggerCarrierSync()" title="Scan Gmail for new Book Now Dispatch emails and add new carriers">⟳ <span class="btn-label">Carrier Sync</span></button>
   <button id="save-btn" onclick="saveHTMLState()" title="Download HTML with current dispatch statuses &amp; issue flags baked in">&#x1F4BE; <span class="btn-label">Save State</span></button>
   <button id="add-btn" onclick="openModal(null)"><span style="font-size:16px;line-height:1">+</span> <span class="btn-label">Add Carrier</span></button>
   <button id="login-btn" style="display:none" onclick="signInWithGoogle()">Sign In</button>
@@ -2067,49 +2067,110 @@ function fetchLiveState(callback) {
     else { if (callback) callback(false); }
   }).catch(function(){ if (callback) callback(false); });
 }
-function showSyncResult(gmailResult) {
+function showSyncResult(result) {
   var panel = document.getElementById('sync-result-panel');
   var content = document.getElementById('srp-content');
+  var titleEl = document.querySelector('#sync-result-panel .srp-title');
   if (!panel || !content) return;
+
   var html = '';
-  if (!gmailResult) {
-    html = '<div class="srp-error">⚠ Could not reach server</div>';
-  } else if (gmailResult.dbRefresh) {
-    html += '<div class="srp-body">';
-    if (gmailResult.newCarriers > 0) {
-      html += '<div class="srp-row"><span class="srp-val srp-new">+' + gmailResult.newCarriers + '</span><span class="srp-lbl">new carriers detected</span></div>';
-    }
-    if (gmailResult.newLoads > 0) {
-      html += '<div class="srp-row"><span class="srp-val srp-updated">+' + gmailResult.newLoads + '</span><span class="srp-lbl">new loads detected</span></div>';
-    }
-    html += '<div class="srp-row"><span class="srp-val srp-scanned">' + gmailResult.carrierCount + '</span><span class="srp-lbl">total carriers</span></div>';
-    html += '<div class="srp-row"><span class="srp-val srp-scanned">' + gmailResult.loadsCount + '</span><span class="srp-lbl">active loads</span></div>';
-    html += '<div class="srp-row"><span class="srp-val" style="color:#8a9aaa;font-size:11px">rev&nbsp;' + gmailResult.revision + '</span><span class="srp-lbl">database revision</span></div>';
-    html += '</div>';
-  } else if (gmailResult.configured === false) {
-    html = '<div class="srp-notconfigured">Gmail OAuth is not configured.<br>Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN in Netlify environment variables.</div>';
-  } else if (gmailResult.error) {
-    html = '<div class="srp-error">⚠ ' + gmailResult.error + '</div>';
-  } else {
-    html += '<div class="srp-body">';
-    html += '<div class="srp-row"><span class="srp-val srp-new">' + (gmailResult.newCarriers || 0) + '</span><span class="srp-lbl">new carriers added</span></div>';
-    html += '<div class="srp-row"><span class="srp-val srp-updated">' + (gmailResult.updatedFromRateCons || 0) + '</span><span class="srp-lbl">carriers updated from rate cons</span></div>';
-    html += '<div class="srp-row"><span class="srp-val srp-skipped">' + (gmailResult.skipped || 0) + '</span><span class="srp-lbl">skipped (already in database)</span></div>';
-    html += '<div class="srp-row"><span class="srp-val srp-scanned">' + (gmailResult.messagesScanned || 0) + '</span><span class="srp-lbl">messages scanned</span></div>';
-    html += '</div>';
-    if (gmailResult.newCarrierNames && gmailResult.newCarrierNames.length) {
-      html += '<div class="srp-names">';
-      gmailResult.newCarrierNames.forEach(function(name) {
-        html += '<span>+ ' + name + '</span>';
+  var dismissMs = 6000;
+
+  if (!result) {
+    // Network / fetch failure
+    titleEl && (titleEl.textContent = 'SYNC FAILED');
+    html = '<div class="srp-error">⚠ Could not reach server — check your connection and try again.</div>';
+    dismissMs = 10000;
+
+  } else if (result.authExpired) {
+    // OAuth token expired
+    titleEl && (titleEl.textContent = 'GMAIL AUTH EXPIRED');
+    html = '<div class="srp-notconfigured">'
+      + '⚠ Your Gmail token has expired.<br><br>'
+      + 'Re-authorize to restore sync:<br>'
+      + '<a href="/api/auth/google" style="color:#4a9eff;font-weight:700;text-decoration:underline">→ Sign in with Google</a>'
+      + '</div>';
+    dismissMs = 0; // don't auto-dismiss — user needs to act
+
+  } else if (result.noAccounts) {
+    // No Gmail accounts connected at all
+    titleEl && (titleEl.textContent = 'GMAIL NOT CONNECTED');
+    html = '<div class="srp-notconfigured">'
+      + 'No Gmail account is connected.<br><br>'
+      + 'Connect your Circle Google account to enable sync:<br>'
+      + '<a href="/api/auth/google" style="color:#4a9eff;font-weight:700;text-decoration:underline">→ Sign in with Google</a>'
+      + '</div>';
+    dismissMs = 0;
+
+  } else if (result.configured === false) {
+    // Backend env vars not set at all
+    titleEl && (titleEl.textContent = 'NOT CONFIGURED');
+    html = '<div class="srp-notconfigured">'
+      + 'Gmail sync is not configured.<br>'
+      + 'Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN in Netlify → Site config → Environment variables.'
+      + '</div>';
+    dismissMs = 10000;
+
+  } else if (!result.ok && result.error) {
+    // Generic server-side error
+    titleEl && (titleEl.textContent = 'SYNC ERROR');
+    html = '<div class="srp-error">⚠ ' + result.error + '</div>';
+    if (result.userResults && result.userResults.length) {
+      result.userResults.forEach(function(u) {
+        if (!u.ok && u.error) html += '<div class="srp-error" style="font-size:10px;color:#8a7a7a">'+u.email+': '+u.error.slice(0,100)+'</div>';
       });
+    }
+    dismissMs = 10000;
+
+  } else if (result.ok) {
+    // Successful sync
+    var newCount = result.newCarriers || 0;
+    var updCount = result.updatedFromRateCons || 0;
+    var scanned = result.messagesScanned || 0;
+    var nothingNew = newCount === 0 && updCount === 0;
+
+    if (nothingNew) {
+      titleEl && (titleEl.textContent = 'SYNC COMPLETE — UP TO DATE');
+    } else {
+      titleEl && (titleEl.textContent = 'GMAIL SYNC COMPLETE');
+    }
+
+    html += '<div class="srp-body">';
+    if (nothingNew) {
+      html += '<div class="srp-row"><span class="srp-val srp-scanned">✓</span><span class="srp-lbl">no new carriers found</span></div>';
+    } else {
+      html += '<div class="srp-row"><span class="srp-val srp-new">+' + newCount + '</span><span class="srp-lbl">new carriers added</span></div>';
+      if (updCount > 0) html += '<div class="srp-row"><span class="srp-val srp-updated">+' + updCount + '</span><span class="srp-lbl">updated from rate confirmations</span></div>';
+    }
+    if (result.skipped > 0) html += '<div class="srp-row"><span class="srp-val srp-skipped">' + result.skipped + '</span><span class="srp-lbl">already in database (skipped)</span></div>';
+    html += '<div class="srp-row"><span class="srp-val srp-scanned">' + scanned + '</span><span class="srp-lbl">messages scanned</span></div>';
+    html += '<div class="srp-row"><span class="srp-val" style="color:#4a5a6a;font-size:11px">rev&nbsp;' + (result.revision || _liveRevision) + '</span><span class="srp-lbl">database revision</span></div>';
+    html += '</div>';
+
+    if (result.newCarrierNames && result.newCarrierNames.length) {
+      html += '<div class="srp-names">';
+      result.newCarrierNames.forEach(function(name) { html += '<span>+ ' + name + '</span>'; });
       html += '</div>';
     }
+
+    if (result.partialAuthFail && result.authFailedAccounts && result.authFailedAccounts.length) {
+      html += '<div class="srp-notconfigured" style="margin:0;border-radius:0;border-top:1px solid #1e2e3e;font-size:10px">'
+        + '⚠ Auth expired for: ' + result.authFailedAccounts.join(', ') + '<br>'
+        + '<a href="/api/auth/google" style="color:#4a9eff">Re-authorize →</a>'
+        + '</div>';
+    }
+
+    dismissMs = nothingNew ? 5000 : 8000;
   }
+
   content.innerHTML = html;
   panel.classList.add('show');
   clearTimeout(panel._timer);
-  panel._timer = setTimeout(function() { panel.classList.remove('show'); }, (!gmailResult || gmailResult.configured === false || gmailResult.error) ? 8000 : 5000);
+  if (dismissMs > 0) {
+    panel._timer = setTimeout(function() { panel.classList.remove('show'); }, dismissMs);
+  }
 }
+
 function triggerCarrierSync() {
   var btn = document.getElementById('carrier-sync-btn');
   if (!btn || btn.classList.contains('syncing')) return;
@@ -2117,28 +2178,34 @@ function triggerCarrierSync() {
   btn.textContent = '⟳ Syncing…';
   var panel = document.getElementById('sync-result-panel');
   if (panel) panel.classList.remove('show');
+
   if (typeof fetch === 'undefined') {
     btn.classList.remove('syncing');
     btn.innerHTML = '⟳ <span class="btn-label">Carrier Sync</span>';
     showSyncResult(null);
     return;
   }
-  var prevCarrierCount = carriers.length;
-  var prevLoadsCount = ((loadsData && loadsData.loads) || []).length;
-  fetchLiveState(function(ok) {
-    btn.classList.remove('syncing');
-    btn.innerHTML = '⟳ <span class="btn-label">Carrier Sync</span>';
-    if (!ok) { showSyncResult(null); return; }
-    var loadsArr = (loadsData && loadsData.loads) || [];
-    showSyncResult({
-      dbRefresh: true,
-      carrierCount: carriers.length,
-      newCarriers: Math.max(0, carriers.length - prevCarrierCount),
-      loadsCount: loadsArr.length,
-      newLoads: Math.max(0, loadsArr.length - prevLoadsCount),
-      revision: _liveRevision
+
+  var secret = '';  // GMAIL_SYNC_SECRET — empty if not set (backend accepts unprotected calls)
+  var headers = { 'Content-Type': 'application/json' };
+  if (secret) headers['x-gmail-sync-secret'] = secret;
+
+  fetch('/api/gmail/sync', { method: 'POST', headers: headers, body: JSON.stringify({}) })
+    .then(function(r) { return r.json(); })
+    .then(function(result) {
+      btn.classList.remove('syncing');
+      btn.innerHTML = '⟳ <span class="btn-label">Carrier Sync</span>';
+      // After any sync (success or partial), refresh local state from live DB
+      fetchLiveState(function() {
+        showSyncResult(result);
+      });
+    })
+    .catch(function(err) {
+      btn.classList.remove('syncing');
+      btn.innerHTML = '⟳ <span class="btn-label">Carrier Sync</span>';
+      console.error('Carrier sync error:', err);
+      showSyncResult(null);
     });
-  });
 }
 // Auto-poll every 30 seconds to keep timestamps current
 setInterval(fetchLiveState, 30000);

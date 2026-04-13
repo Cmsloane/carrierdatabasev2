@@ -466,12 +466,53 @@ export default async (request) => {
         }
       }
 
+      // Detect auth failures before going further
+      const authFailedAccounts = userSyncResults.filter(u => !u.ok && u.error && (
+        u.error.includes('invalid_grant') || u.error.includes('token_revoked') ||
+        u.error.includes('Token has been expired') || u.error.includes('token refresh failed')
+      ));
+      const allAuthFailed = userSyncResults.length > 0 && userSyncResults.every(u => !u.ok);
+      const noAccountsAtAll = userSyncResults.length === 0;
+
+      // If all accounts failed due to auth, return early with clear error — don't overwrite state
+      if (allAuthFailed) {
+        const isAuthErr = authFailedAccounts.length > 0;
+        return json(200, {
+          ok: false, configured: true,
+          authExpired: isAuthErr,
+          noAccounts: false,
+          error: isAuthErr
+            ? 'Gmail token expired or revoked. Re-authorize via Google sign-in to restore sync.'
+            : 'All Gmail accounts failed to sync: ' + userSyncResults[0]?.error?.slice(0, 120),
+          userResults: userSyncResults,
+          accountsScanned: userSyncResults.length
+        });
+      }
+
+      // If no accounts at all were found (no connected users + no env var email)
+      if (noAccountsAtAll) {
+        return json(200, {
+          ok: false, configured: true,
+          noAccounts: true,
+          error: 'No Gmail accounts are connected. Sign in with your Circle Google account to connect Gmail.'
+        });
+      }
+
       // Step 2: Update existing carriers from rate confirmation threads (primary account)
-      const rcResult = await syncCarriersFromGmail(carriers);
-      carriers = rcResult.carriers || carriers;
+      let rcResult = { carriers, gmailSync: {} };
+      try {
+        rcResult = await syncCarriersFromGmail(carriers);
+        carriers = rcResult.carriers || carriers;
+      } catch (rcErr) {
+        // RC sync failing is non-fatal — log but continue
+        userSyncResults.push({ email: 'rate-con-sync', ok: false, error: rcErr.message });
+      }
       totalUpdated = rcResult.gmailSync?.matchedCarriers || 0;
 
       const synced = await writeState(store, { ...current, carriers, carriersUpdatedAt: nowIso() }, 'gmail_sync');
+
+      // Identify any partial auth failures
+      const partialAuthFail = authFailedAccounts.length > 0 && !allAuthFailed;
 
       const syncResponse = {
         ok: true, configured: true,
@@ -480,10 +521,13 @@ export default async (request) => {
         skipped: totalSkipped,
         updatedFromRateCons: totalUpdated,
         messagesScanned: totalScanned + (rcResult.gmailSync?.scannedMessages || 0),
-        accountsScanned: userSyncResults.length,
+        accountsScanned: userSyncResults.filter(u => u.ok).length,
+        partialAuthFail,
+        authFailedAccounts: authFailedAccounts.map(u => u.email),
         userResults: userSyncResults,
         revision: synced.meta.revision,
-        carriersUpdatedAt: synced.carriersUpdatedAt
+        carriersUpdatedAt: synced.carriersUpdatedAt,
+        nothingNew: totalNewCarriers.length === 0 && totalUpdated === 0
       };
 
       const userRows = userSyncResults.map(u =>
