@@ -213,6 +213,53 @@ body.show-loads #loads-table-wrap{display:block}
 .contact-link{color:inherit;text-decoration:none}
 .contact-link:hover{text-decoration:underline;color:#4a9eff}
 
+/* ── Outreach System ─────────────────────────────────────── */
+.outreach-header{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.outreach-badge{display:inline-block;font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;letter-spacing:0.5px;text-transform:uppercase}
+.outreach-badge.due{background:rgba(232,196,74,0.15);color:#e8c44a;border:1px solid rgba(232,196,74,0.3)}
+.outreach-badge.recent{background:rgba(74,204,122,0.12);color:#4acc7a;border:1px solid rgba(74,204,122,0.25)}
+.outreach-badge.never{background:rgba(200,120,80,0.15);color:#e8806a;border:1px solid rgba(200,120,80,0.3)}
+.contact-log-item{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);align-items:flex-start}
+.contact-log-item:last-child{border-bottom:none}
+.contact-log-icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;margin-top:1px}
+.contact-log-icon.call{background:rgba(74,158,255,0.15)}
+.contact-log-icon.email{background:rgba(122,74,255,0.15)}
+.contact-log-icon.text{background:rgba(74,204,122,0.12)}
+.contact-log-icon.booked{background:rgba(232,196,74,0.15)}
+.contact-log-icon.other{background:rgba(100,110,130,0.2)}
+.contact-log-body{flex:1;min-width:0}
+.contact-log-meta{display:flex;gap:8px;align-items:center;margin-bottom:2px}
+.contact-log-type{font-size:11px;font-weight:600;color:#c8cdd6}
+.contact-log-date{font-size:10px;color:#4a5a6a;font-family:'DM Mono',monospace}
+.contact-log-notes{font-size:11px;color:#8a9aaa;line-height:1.4}
+.log-contact-form{background:#1a2030;border-radius:8px;padding:12px;margin-top:8px;border:1px solid rgba(255,255,255,0.06)}
+.log-contact-form select,.log-contact-form textarea,.log-contact-form input{width:100%;background:#0e1520;border:1px solid rgba(255,255,255,0.1);border-radius:5px;color:#c8cdd6;font-size:12px;padding:7px 9px;margin-bottom:8px;box-sizing:border-box;resize:none;font-family:inherit}
+.log-contact-form select:focus,.log-contact-form textarea:focus{outline:none;border-color:rgba(74,158,255,0.4)}
+.log-contact-form .form-row{display:flex;gap:6px}
+.log-contact-form .btn-log{flex:1;padding:7px;background:#1a4a7a;color:#9acfff;border:none;border-radius:5px;font-size:12px;font-weight:600;cursor:pointer;transition:background 0.15s}
+.log-contact-form .btn-log:hover{background:#1e5a94}
+.log-contact-form .btn-msg{flex:1;padding:7px;background:#1a3a28;color:#7acc7a;border:none;border-radius:5px;font-size:12px;font-weight:600;cursor:pointer;transition:background 0.15s}
+.log-contact-form .btn-msg:hover{background:#204a30}
+.btn-add-contact{display:flex;align-items:center;gap:5px;font-size:11px;color:#4a9eff;background:none;border:1px solid rgba(74,158,255,0.25);border-radius:5px;padding:4px 10px;cursor:pointer;margin-top:6px;transition:all 0.15s}
+.btn-add-contact:hover{background:rgba(74,158,255,0.08);border-color:rgba(74,158,255,0.4)}
+/* Outreach message modal */
+#outreach-modal{display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,0.65);align-items:center;justify-content:center}
+#outreach-modal.show{display:flex}
+#outreach-modal .om-box{background:#151b27;border:1px solid rgba(255,255,255,0.1);border-radius:12px;width:520px;max-width:96vw;max-height:85vh;display:flex;flex-direction:column}
+#outreach-modal .om-header{padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between}
+#outreach-modal .om-title{font-size:14px;font-weight:700;color:#e8e8e0}
+#outreach-modal .om-tabs{display:flex;gap:6px;padding:12px 20px 0}
+#outreach-modal .om-tab{padding:5px 14px;border-radius:5px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid rgba(255,255,255,0.08);color:#8a9aaa;background:none;transition:all 0.15s}
+#outreach-modal .om-tab.active{background:#1a4a7a;color:#9acfff;border-color:rgba(74,158,255,0.3)}
+#outreach-modal .om-body{padding:16px 20px;overflow-y:auto;flex:1}
+#outreach-modal textarea{width:100%;background:#0e1520;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#c8cdd6;font-size:12px;padding:12px;box-sizing:border-box;resize:vertical;min-height:220px;font-family:'DM Mono',monospace;line-height:1.6}
+#outreach-modal textarea:focus{outline:none;border-color:rgba(74,158,255,0.4)}
+#outreach-modal .om-footer{padding:12px 20px;border-top:1px solid rgba(255,255,255,0.08);display:flex;gap:8px;justify-content:flex-end}
+#outreach-modal .om-btn-copy{padding:8px 18px;background:#1a4a7a;color:#9acfff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer}
+#outreach-modal .om-btn-close{padding:8px 18px;background:#1a2030;color:#8a9aaa;border:1px solid rgba(255,255,255,0.08);border-radius:6px;font-size:12px;cursor:pointer}
+/* Needs Outreach chip in table */
+.outreach-chip{display:inline-block;font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px;vertical-align:middle;background:rgba(232,196,74,0.15);color:#e8c44a;border:1px solid rgba(232,196,74,0.2)}
+
 /* ── Mobile Responsive ───────────────────────────────────── */
 @media (max-width:768px){
   /* Topbar */
@@ -477,6 +524,7 @@ body.show-loads #loads-table-wrap{display:block}
   <select class="filter-select" id="status-filter" onchange="renderTable()"><option value="">Status: All</option><option>Preferred</option><option>Approved</option><option>Conditional</option><option>Do Not Use</option></select>
   <select class="filter-select" id="region-filter" onchange="renderTable()"><option value="">Region: All</option><option>Northeast</option><option>Southeast</option><option>Midwest</option><option>South</option><option>West</option><option>Cross-Country</option></select>
   <select class="filter-select" id="match-filter" onchange="renderTable()"><option value="">Match: All</option><option value="strong">Strong Fit</option><option value="any">Any Match</option><option value="none">No Match</option></select>
+  <select class="filter-select" id="outreach-filter" onchange="renderTable()"><option value="">Outreach: All</option><option value="due">Needs Outreach</option><option value="recent">Recently Contacted</option><option value="never">Never Contacted</option></select>
   <span id="result-count" class="stat-lbl"></span>
   <button class="export-btn" onclick="exportCSV()" title="Export current filtered list to CSV">↓ CSV</button>
 </div>
@@ -649,6 +697,29 @@ body.show-loads #loads-table-wrap{display:block}
       <div class="section-label">Availability <span class="save-indicator" id="p-avail-indicator"></span></div>
       <input class="avail-input" id="p-avail" placeholder="e.g. Available Mon–Wed, running Southeast this week…" onblur="saveCarrierField('availability', this.value)">
     </div>
+    <div class="section" id="p-outreach-section">
+      <div class="outreach-header">
+        <div class="section-label" style="margin-bottom:0">Outreach &amp; Contact Log</div>
+        <span id="p-outreach-badge" class="outreach-badge" style="display:none"></span>
+      </div>
+      <div id="p-contact-log"></div>
+      <button class="btn-add-contact" onclick="toggleLogContactForm()">+ Log Contact</button>
+      <div id="p-log-contact-form" class="log-contact-form" style="display:none">
+        <select id="p-contact-type">
+          <option value="Call">📞 Call</option>
+          <option value="Email">✉ Email</option>
+          <option value="Text">💬 Text</option>
+          <option value="Booked">✅ Booked Load</option>
+          <option value="Other">Other</option>
+        </select>
+        <input id="p-contact-date" type="date" style="margin-bottom:8px">
+        <textarea id="p-contact-notes" rows="2" placeholder="Notes (optional)…"></textarea>
+        <div class="form-row">
+          <button class="btn-log" onclick="submitLogContact()">Save Log</button>
+          <button class="btn-msg" onclick="openOutreachModal()">✉ Message Template</button>
+        </div>
+      </div>
+    </div>
     <div class="section" id="p-loadhistory-section"><div class="section-label">Load History <span id="p-lh-count" style="font-size:11px;font-weight:400;color:#4a5a6a;margin-left:6px"></span></div><div id="p-loadhistory"></div></div>
     <div class="section" id="p-sources-section"><div class="section-label">Data Sources &amp; Audit</div><div id="p-sources"></div></div>
     <div class="section pitch-section" id="p-pitch-section" style="display:none">
@@ -657,6 +728,26 @@ body.show-loads #loads-table-wrap{display:block}
     </div>
     <div class="section" id="p-matched-section" style="display:none"><div class="section-label" style="color:#7a4aff;border-bottom-color:rgba(122,74,255,0.2)">Matched Loads <span id="p-match-count" style="font-size:11px;font-weight:400;color:#7a4aff;margin-left:6px"></span></div><div id="p-matched-loads"></div></div>
     <div class="section" id="p-issue-section"><div class="section-label">Issue Status</div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><select id="p-issue-select" class="filter-select" style="font-size:12px;padding:5px 8px;margin-bottom:0" onchange="setIssueFlagFromPanel()"><option value="">-- No Issue --</option><option value="Equipment Issue">Equipment Issue</option><option value="Fraud Alert">Fraud Alert</option><option value="No Response">No Response</option><option value="Trailer Rejected">Trailer Rejected</option><option value="Cancellation">Cancellation</option></select></div></div>
+  </div>
+</div>
+<div id="outreach-modal" onclick="if(event.target===this)closeOutreachModal()">
+  <div class="om-box">
+    <div class="om-header">
+      <span class="om-title" id="om-carrier-name">Outreach Message</span>
+      <button class="close-btn" onclick="closeOutreachModal()">✕</button>
+    </div>
+    <div class="om-tabs">
+      <button class="om-tab active" onclick="switchOMTab('call',this)">📞 Call Script</button>
+      <button class="om-tab" onclick="switchOMTab('email',this)">✉ Email</button>
+      <button class="om-tab" onclick="switchOMTab('text',this)">💬 Text</button>
+    </div>
+    <div class="om-body">
+      <textarea id="om-text" spellcheck="true"></textarea>
+    </div>
+    <div class="om-footer">
+      <button class="om-btn-copy" onclick="copyOutreachText()">Copy</button>
+      <button class="om-btn-close" onclick="closeOutreachModal()">Close</button>
+    </div>
   </div>
 </div>
 <div id="modal-overlay" onclick="if(event.target===this)closeModal()">
@@ -2272,6 +2363,268 @@ function getTopMatchedCarriers(load, n) {
   scored.sort(function(a,b){return order[a.matchType]-order[b.matchType]||(b.carrier.score-a.carrier.score);});
   return scored.slice(0,n||5);
 }
+
+// ── Outreach System ───────────────────────────────────────────────────────────
+var _omCurrentTab = 'call';
+
+function needsOutreach(c) {
+  if(!c || c.status === 'Do Not Use') return false;
+  var last = c.lastContactedDate || '';
+  if(!last) return true; // never contacted
+  try {
+    var d = new Date(last);
+    var diffDays = (new Date() - d) / 86400000;
+    return diffDays > 30;
+  } catch(e){ return false; }
+}
+
+function daysSinceContact(c) {
+  var last = c.lastContactedDate || '';
+  if(!last) return null;
+  try {
+    return Math.floor((new Date() - new Date(last)) / 86400000);
+  } catch(e){ return null; }
+}
+
+function renderOutreachSection(c) {
+  var badge = document.getElementById('p-outreach-badge');
+  var logEl = document.getElementById('p-contact-log');
+  if(!badge || !logEl) return;
+
+  var log = c.contactLog || [];
+  var days = daysSinceContact(c);
+
+  // Badge
+  if(!c.lastContactedDate) {
+    badge.textContent = 'Never Contacted';
+    badge.className = 'outreach-badge never';
+    badge.style.display = 'inline-block';
+  } else if(days !== null && days > 30) {
+    badge.textContent = days + 'd since contact';
+    badge.className = 'outreach-badge due';
+    badge.style.display = 'inline-block';
+  } else if(days !== null) {
+    badge.textContent = days === 0 ? 'Contacted today' : days + 'd ago';
+    badge.className = 'outreach-badge recent';
+    badge.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
+  }
+
+  // Contact log
+  if(!log.length) {
+    logEl.innerHTML = '<div style="font-size:11px;color:#4a5a6a;padding:6px 0">No contact history yet.</div>';
+  } else {
+    var icons = {Call:'📞', Email:'✉', Text:'💬', Booked:'✅', Other:'·'};
+    var cls = {Call:'call', Email:'email', Text:'text', Booked:'booked', Other:'other'};
+    logEl.innerHTML = log.slice().reverse().map(function(e) {
+      return '<div class="contact-log-item">'
+        + '<div class="contact-log-icon '+(cls[e.type]||'other')+'">'+(icons[e.type]||'·')+'</div>'
+        + '<div class="contact-log-body">'
+          + '<div class="contact-log-meta">'
+            + '<span class="contact-log-type">'+(e.type||'Contact')+'</span>'
+            + '<span class="contact-log-date">'+(e.date||'')+'</span>'
+          + '</div>'
+          + (e.notes ? '<div class="contact-log-notes">'+e.notes+'</div>' : '')
+        + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  // Pre-fill date with today
+  var dateEl = document.getElementById('p-contact-date');
+  if(dateEl && !dateEl.value) {
+    var now = new Date();
+    dateEl.value = now.getFullYear()+'-'+(now.getMonth()<9?'0':'')+(now.getMonth()+1)+'-'+(now.getDate()<10?'0':'')+now.getDate();
+  }
+}
+
+function toggleLogContactForm() {
+  var f = document.getElementById('p-log-contact-form');
+  if(!f) return;
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+  if(f.style.display === 'block') {
+    var dateEl = document.getElementById('p-contact-date');
+    if(dateEl) {
+      var now = new Date();
+      dateEl.value = now.getFullYear()+'-'+(now.getMonth()<9?'0':'')+(now.getMonth()+1)+'-'+(now.getDate()<10?'0':'')+now.getDate();
+    }
+  }
+}
+
+function submitLogContact() {
+  var c = carriers.find(function(x){ return x.id === selectedId; });
+  if(!c) return;
+  var type = (document.getElementById('p-contact-type')||{}).value || 'Call';
+  var date = (document.getElementById('p-contact-date')||{}).value || '';
+  var notes = ((document.getElementById('p-contact-notes')||{}).value || '').trim();
+  if(!date) { alert('Please select a date.'); return; }
+
+  if(!c.contactLog) c.contactLog = [];
+  c.contactLog.push({date: date, type: type, notes: notes});
+  c.lastContactedDate = date;
+
+  // Reset form
+  var notesEl = document.getElementById('p-contact-notes');
+  if(notesEl) notesEl.value = '';
+  document.getElementById('p-log-contact-form').style.display = 'none';
+
+  // Save via PATCH
+  var body = { contactLog: c.contactLog, lastContactedDate: c.lastContactedDate };
+  fetch('/api/carriers/'+c.id, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(result){
+      showToast(result ? 'Contact logged ✓' : 'Saved locally (offline)', !result);
+    })
+    .catch(function(){ showToast('Saved locally (offline)'); });
+
+  renderOutreachSection(c);
+  renderTable();
+}
+
+function generateOutreachMessage(c, type) {
+  var dispatcher = c.dispatcher || 'there';
+  var firstName = dispatcher.split(' ')[0].replace(/\(.*\)/,'').trim();
+  var company = c.company || 'your company';
+  var lanes = c.preferredLanes || c.region || 'your region';
+  var lastLoad = '';
+  if(c.loadHistory && c.loadHistory.length) {
+    var lh = c.loadHistory[c.loadHistory.length-1];
+    lastLoad = (lh.origin||'') + (lh.dest ? ' to '+lh.dest : '');
+  }
+  // Get matched loads for this carrier
+  var matched = (matchedLoadsCache[c.id]||[]).slice(0,3);
+  var loadLines = matched.map(function(m){
+    return '  • Load #'+m.load_id+': '+m.route+' (PU: '+m.pickup_date+(m.max_buy?', Max: $'+Number(m.max_buy).toLocaleString():'')+')';
+  }).join('\n');
+
+  if(type === 'call') {
+    return 'CALL SCRIPT — '+company+'\n'
+      +'────────────────────────────────\n'
+      +'Ask for: '+dispatcher+'\n\n'
+      +'Hi '+firstName+', this is [Your Name] calling from Circle Logistics.\n\n'
+      +(lastLoad ? 'We worked together on a load '+lastLoad+' — hope that went smoothly!\n\n' : '')
+      +'I\'m reaching out because we have some freight that looks like a strong fit for your lanes ('+lanes+') and wanted to see if you have trucks available.\n\n'
+      +(loadLines ? 'Current loads available:\n'+loadLines+'\n\n' : '')
+      +'Are you available and what does your capacity look like this week?\n\n'
+      +'────────────────────────────────\n'
+      +'Phone: '+c.phone+'\n'
+      +'Email: '+c.email;
+  } else if(type === 'email') {
+    return 'Subject: Load Opportunity — '+lanes+'\n\n'
+      +'Hi '+firstName+',\n\n'
+      +'Hope you\'re doing well! This is [Your Name] from Circle Logistics.\n\n'
+      +(lastLoad ? 'We appreciate you hauling for us previously'+( lastLoad ? ' on the '+lastLoad+' lane' : '')+'. ' : '')
+      +'I\'m reaching out because we have some loads that match your lanes and wanted to check your availability.\n\n'
+      +(loadLines ? 'Here\'s what we have available right now:\n\n'+loadLines+'\n\n' : '')
+      +'If any of these work for you or you have capacity in the '+lanes+' area, please reply or give us a call. We\'d love to get you rolling again.\n\n'
+      +'Thanks,\n[Your Name]\nCircle Logistics\n[Your Phone]';
+  } else {
+    return 'Hi '+firstName+' ('+company+'), this is [Name] from Circle Logistics. '
+      +(lastLoad ? 'We worked together on the '+lastLoad+' lane before. ' : '')
+      +'Do you have any trucks available? We have freight that could be a fit for you. Let me know! Thanks';
+  }
+}
+
+function openOutreachModal() {
+  var c = carriers.find(function(x){ return x.id === selectedId; });
+  if(!c) return;
+  var nameEl = document.getElementById('om-carrier-name');
+  if(nameEl) nameEl.textContent = c.company;
+  _omCurrentTab = 'call';
+  // Reset tabs
+  var tabs = document.querySelectorAll('.om-tab');
+  tabs.forEach(function(t){ t.classList.remove('active'); });
+  if(tabs[0]) tabs[0].classList.add('active');
+  var ta = document.getElementById('om-text');
+  if(ta) ta.value = generateOutreachMessage(c, 'call');
+  var modal = document.getElementById('outreach-modal');
+  if(modal) modal.classList.add('show');
+}
+
+function closeOutreachModal() {
+  var modal = document.getElementById('outreach-modal');
+  if(modal) modal.classList.remove('show');
+}
+
+function switchOMTab(type, btn) {
+  _omCurrentTab = type;
+  var tabs = document.querySelectorAll('.om-tab');
+  tabs.forEach(function(t){ t.classList.remove('active'); });
+  if(btn) btn.classList.add('active');
+  var c = carriers.find(function(x){ return x.id === selectedId; });
+  var ta = document.getElementById('om-text');
+  if(ta && c) ta.value = generateOutreachMessage(c, type);
+}
+
+function copyOutreachText() {
+  var ta = document.getElementById('om-text');
+  if(!ta) return;
+  if(navigator.clipboard) {
+    navigator.clipboard.writeText(ta.value).then(function(){
+      showToast('Copied to clipboard ✓');
+    }).catch(function(){ ta.select(); document.execCommand('copy'); showToast('Copied ✓'); });
+  } else {
+    ta.select(); document.execCommand('copy'); showToast('Copied ✓');
+  }
+}
+
+// ── Patch selectCarrier to render outreach section ────────────────────────────
+var _origSelectCarrier = selectCarrier;
+selectCarrier = function(id) {
+  _origSelectCarrier(id);
+  var c = carriers.find(function(x){ return x.id === id; });
+  if(c) renderOutreachSection(c);
+  // Reset log form
+  var f = document.getElementById('p-log-contact-form');
+  if(f) f.style.display = 'none';
+};
+
+// ── Patch getFiltered to support outreach filter ──────────────────────────────
+var _origGetFiltered = getFiltered;
+getFiltered = function() {
+  var base = _origGetFiltered();
+  var of = (document.getElementById('outreach-filter')||{}).value || '';
+  if(!of) return base;
+  return base.filter(function(c){
+    var days = daysSinceContact(c);
+    if(of === 'never') return !c.lastContactedDate;
+    if(of === 'due') return needsOutreach(c);
+    if(of === 'recent') return c.lastContactedDate && days !== null && days <= 30;
+    return true;
+  });
+};
+
+// ── Inject outreach chips into carrier table rows ────────────────────────────
+(function(){
+  if(window._outreachPatchApplied) return;
+  window._outreachPatchApplied = true;
+  var _rt = renderTable;
+  renderTable = function(){
+    _rt();
+    var tbody = document.getElementById('table-body')||document.querySelector('#table-wrap tbody');
+    if(!tbody) return;
+    tbody.querySelectorAll('tr').forEach(function(row){
+      var m = (row.getAttribute('onclick')||'').match(/selectCarrier\((\d+)\)/);
+      if(!m) return;
+      var c = carriers.find(function(x){ return x.id === parseInt(m[1]); });
+      if(!c || !needsOutreach(c)) return;
+      var tds = row.querySelectorAll('td');
+      for(var j=0;j<tds.length;j++){
+        if(tds[j].textContent.trim().startsWith(c.company.substring(0,10))){
+          if(!tds[j].querySelector('.outreach-chip')){
+            var chip = document.createElement('span');
+            chip.className = 'outreach-chip';
+            chip.textContent = 'outreach';
+            chip.title = c.lastContactedDate ? daysSinceContact(c)+'d since contact' : 'never contacted';
+            tds[j].appendChild(chip);
+          }
+          break;
+        }
+      }
+    });
+  };
+})();
 
 // ── Patch selectLoad to show matched carriers ──────────────
 var _origSelectLoad2=selectLoad;
