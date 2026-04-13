@@ -512,6 +512,7 @@ body.show-loads #loads-table-wrap{display:block}
   <div class="stat-item"><span class="stat-val" id="s-conditional" style="color:#c07a10">0</span><span class="stat-lbl">Conditional</span></div>
   <div class="stat-item"><span class="stat-val" id="s-loads" style="color:#e8412a">0</span><span class="stat-lbl">Total Loads</span></div>
   <div class="stat-item"><span class="stat-val" id="s-score" style="color:#8a9aaa">0</span><span class="stat-lbl">Avg Score</span></div>
+  <div class="stat-item" title="Carriers with no contact in 30+ days or never contacted"><span class="stat-val" id="s-outreach" style="color:#e8c44a">0</span><span class="stat-lbl">Need Outreach</span></div>
   <div class="stat-item stat-sync"><span class="stat-val" id="s-carriers-updated" style="color:#4a5a6a;font-size:12px">—</span><span class="stat-lbl">Carriers Updated</span></div>
   <div class="stat-item stat-sync"><span class="stat-val" id="s-loads-synced" style="color:#4a5a6a;font-size:12px">—</span><span class="stat-lbl">Loads Synced</span></div>
 </div>
@@ -688,6 +689,7 @@ body.show-loads #loads-table-wrap{display:block}
       </div>
       <div class="field-row"><span class="field-label">Claims / Issues</span><span class="field-val" id="p-claims"></span></div>
       <div class="field-row"><span class="field-label">Last Active</span><span class="field-val" id="p-lastactive"></span></div>
+      <div class="field-row"><span class="field-label">Last Contact</span><span class="field-val" id="p-lastcontact" style="color:#8a9aaa">—</span></div>
     </div>
     <div class="section" id="p-notes-section">
       <div class="section-label">Notes &amp; Intel <span class="save-indicator" id="p-notes-indicator"></span></div>
@@ -805,6 +807,8 @@ function updateStats(){
   document.getElementById('s-conditional').textContent=carriers.filter(x=>x.status==='Conditional').length;
   document.getElementById('s-loads').textContent=carriers.reduce((s,x)=>s+(x.loadsCompleted||0),0);
   document.getElementById('s-score').textContent=Math.round(carriers.reduce((s,x)=>s+x.score,0)/carriers.length);
+  var outEl=document.getElementById('s-outreach');
+  if(outEl && typeof needsOutreach === 'function') outEl.textContent=carriers.filter(function(c){return c.status!=='Do Not Use'&&needsOutreach(c);}).length;
 }
 
 function getFiltered(){
@@ -879,6 +883,18 @@ function selectCarrier(id){
   document.getElementById('p-loads').textContent=c.loadsCompleted;document.getElementById('p-otpu').textContent=c.otPickup+'%';
   document.getElementById('p-otdel').textContent=c.otDelivery+'%';document.getElementById('p-claims').textContent=c.claims||'None';
   document.getElementById('p-lastactive').textContent=val(c.lastActive);
+  var lcEl=document.getElementById('p-lastcontact');
+  if(lcEl){
+    if(c.lastContactedDate){var dsc=Math.floor((new Date()-new Date(c.lastContactedDate))/86400000);lcEl.textContent=c.lastContactedDate+(dsc===0?' (today)':dsc===1?' (yesterday)':' ('+dsc+'d ago)');lcEl.style.color=dsc>30?'#e8c44a':'#4acc7a';}
+    else{lcEl.textContent='Never';lcEl.style.color='#e8806a';}
+  }
+  // Score breakdown tooltip
+  var sfEl=document.getElementById('p-score-fill');var snEl=document.getElementById('p-score-num');
+  var sr=c.safetyRating||'';var safetyPts=sr==='Satisfactory'?25:sr===''||sr==='Not Rated'?10:'Conditional'===sr?0:-10;
+  var otdPts=c.otDelivery>0?Math.round(c.otDelivery*0.22):12;var otpPts=c.otPickup>0?Math.round(c.otPickup*0.08):4;
+  var expPts=Math.min((c.loadsCompleted||0)*2,10);var issuePts=c.issueFlag?-20:0;var claimsPts=-((c.claims||0)*5);var prefPts=c.status==='Preferred'?5:0;
+  var tip='Score breakdown:\n  Base: 40\n  Safety ('+sr+'): +'+(safetyPts>0?safetyPts:safetyPts)+'\n  OT Delivery: +'+otdPts+(c.otDelivery===0?' (provisional)':'')+'\n  OT Pickup: +'+otpPts+(c.otPickup===0?' (provisional)':'')+'\n  Experience: +'+expPts+'\n'+  (issuePts?'  Issue flag: '+issuePts+'\n':'')+(claimsPts?'  Claims: '+claimsPts+'\n':'')+(prefPts?'  Preferred: +'+prefPts+'\n':'')+'  Total: '+c.score;
+  if(sfEl)sfEl.title=tip;if(snEl){snEl.title=tip;snEl.style.cursor='help';}
   // Notes (editable textarea — always visible)
   var pnEl=document.getElementById('p-notes');if(pnEl)pnEl.value=c.notes||'';
   // Availability
