@@ -2666,9 +2666,9 @@ function copyOutreachText() {
 }
 
 // ── Patch selectCarrier to render outreach section ────────────────────────────
-var _origSelectCarrier = selectCarrier;
+var _selectCarrierBeforeOutreach = selectCarrier;
 selectCarrier = function(id) {
-  _origSelectCarrier(id);
+  _selectCarrierBeforeOutreach(id);
   var c = carriers.find(function(x){ return x.id === id; });
   if(c) renderOutreachSection(c);
   // Reset log form
@@ -2677,9 +2677,9 @@ selectCarrier = function(id) {
 };
 
 // ── Patch getFiltered to support outreach filter ──────────────────────────────
-var _origGetFiltered = getFiltered;
+var _getFilteredBeforeOutreach = getFiltered;
 getFiltered = function() {
-  var base = _origGetFiltered();
+  var base = _getFilteredBeforeOutreach();
   var of = (document.getElementById('outreach-filter')||{}).value || '';
   if(!of) return base;
   return base.filter(function(c){
