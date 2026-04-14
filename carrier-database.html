@@ -154,6 +154,11 @@ body.show-loads #loads-table-wrap{display:block}
 .match-type-strong{color:#1a7a4a;font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase}
 .match-type-good{color:#2a6fa8;font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase}
 .match-type-possible{color:#4a5a6a;font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase}
+.urgent-badge{background:rgba(180,50,30,0.2);color:#ff8870;border:1px solid rgba(180,50,30,0.35);font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:4px;letter-spacing:0.3px;text-transform:uppercase;vertical-align:middle}
+.rate-flag-badge{background:rgba(160,130,20,0.2);color:#d4aa40;border:1px solid rgba(160,130,20,0.3);font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:4px;letter-spacing:0.3px;text-transform:uppercase;vertical-align:middle}
+.quick-call-btn{display:inline-block;font-size:11px;padding:1px 5px;border-radius:3px;margin-left:5px;vertical-align:middle;cursor:pointer;background:rgba(26,122,74,0.12);border:1px solid rgba(26,122,74,0.2);color:#4acc7a;line-height:1.4}
+.quick-call-btn:hover{background:rgba(26,122,74,0.25)}
+.cmc-outreach{font-size:9px;color:#8a9aaa;margin-top:2px}
 /* == PU/DO date filter inputs == */
 .date-filter-group{display:flex;align-items:center;gap:6px;flex-shrink:0}
 .date-filter-group label{font-size:11px;color:#4a5a6a;font-weight:600;white-space:nowrap}
@@ -1031,16 +1036,28 @@ function selectCarrier(id){
   if(matches.length){
     matchSec.style.display='block';
     matchCountEl.textContent=matches.length+' load'+(matches.length>1?'s':'');
+    var carrierAvgRate=parseAvgRate(c.avgRate);
     matchEl.innerHTML=matches.map(function(m){
       var tc=m.match_type==='Strong'?'match-type-strong':m.match_type==='Good'?'match-type-good':'match-type-possible';
+      var urgTag=m.urgent?'<span class="urgent-badge">Urgent</span>':'';
+      var rateTag=m.rateFlag?'<span class="rate-flag-badge">Low Rate</span>':'';
+      var spread='';
+      if(m.max_buy&&carrierAvgRate){
+        var mb=parseFloat(String(m.max_buy).replace(/[^0-9.]/g,''));
+        if(!isNaN(mb)){
+          var diff=mb-carrierAvgRate;
+          var sign=diff>=0?'+':'-';
+          spread=' <span style="font-size:10px;color:'+(diff>=0?'#4acc7a':'#e8806a')+'">'+sign+fmt$(Math.abs(diff))+' vs avg</span>';
+        }
+      }
       return '<div class="match-row" style="cursor:pointer" data-lid="'+m.load_id+'" onclick="event.stopPropagation();jumpToLoadEl(this)" title="Click to view load details">'
-        +'<div style="display:flex;justify-content:space-between;align-items:center">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:3px">'
           +'<span style="font-family:\'DM Mono\',monospace;font-size:12px;color:#4a9eff;text-decoration:underline">#'+m.load_id+'</span>'
-          +'<span class="'+tc+'">'+m.match_type+' Match</span>'
+          +'<div><span class="'+tc+'">'+m.match_type+' Match</span>'+urgTag+rateTag+'</div>'
         +'</div>'
         +'<div style="font-size:12px;color:#c8cdd6;margin-top:3px">'+m.route+'</div>'
         +'<div style="font-size:11px;color:#5a6a7a;margin-top:2px">PU: '+m.pickup_date+' · DO: '+m.delivery_date+' · '+m.equipment+'</div>'
-        +'<div style="font-size:11px;color:#8a9aaa;margin-top:2px">Max Buy: '+(m.max_buy?fmt$(m.max_buy):'--')+'</div>'
+        +'<div style="font-size:11px;color:#8a9aaa;margin-top:2px">Max Buy: '+(m.max_buy?fmt$(m.max_buy):'--')+spread+'</div>'
       +'</div>';
     }).join('');
   }else{matchSec.style.display='none';}
@@ -1864,6 +1881,72 @@ var DS_VALUES=['','Dispatched','InTransit','Delivered'];
 var DS_LABELS={'':'Set Status','Dispatched':'Dispatched','InTransit':'In Transit','Delivered':'Delivered'};
 var DS_CLASS={'':'ds-none','Dispatched':'ds-dispatched','InTransit':'ds-intransit','Delivered':'ds-delivered'};
 
+// -- Matching helpers --
+function parseAvgRate(avgRate){
+  if(!avgRate)return null;
+  var n=parseFloat(String(avgRate).replace(/[^0-9.]/g,''));
+  return isNaN(n)?null:n;
+}
+function daysUntil(dateStr){
+  if(!dateStr)return null;
+  var s=dateStr.trim();
+  var d=new Date(s);
+  if(!isNaN(d.getTime()))return Math.floor((d-new Date())/86400000);
+  var m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(m){d=new Date(parseInt(m[3]),parseInt(m[1])-1,parseInt(m[2]));return Math.floor((d-new Date())/86400000);}
+  return null;
+}
+function historyLaneDaysAgo(h){
+  var s=h.date||h.pickup_date||'';
+  if(!s)return 999;
+  var d=new Date(s);
+  return isNaN(d.getTime())?999:Math.floor((new Date()-d)/86400000);
+}
+// Returns true if carrier can haul this load equipment type.
+// Unknown/blank fields are treated as compatible (assume Dry Van).
+function equipmentCompatible(carrierEquip,loadEquip){
+  if(!loadEquip)return true;
+  if(!carrierEquip||carrierEquip==='Unknown')return true;
+  var c=carrierEquip.toLowerCase().replace(/refrigerated/,'reefer').replace(/\bvan\b/,'dry van');
+  var l=loadEquip.toLowerCase().replace(/refrigerated/,'reefer').replace(/\bvan\b/,'dry van');
+  if(c===l)return true;
+  // First-word match catches "Dry Van" vs "Dry Van (48')", "Reefer" vs "Reefer / Refrigerated"
+  return c.split(/[\s\/]/)[0]===l.split(/[\s\/]/)[0];
+}
+// Outreach priority score: higher = call this carrier first for a load.
+// Used to sort matched carriers in the load detail panel.
+function outreachPriority(c,loadId){
+  var score=0;
+  var matches=matchedLoadsCache[c.id]||[];
+  var relevant=loadId?matches.filter(function(m){return m.load_id===loadId;}):matches;
+  var best=relevant[0]||matches[0];
+  if(best){
+    var ms={Strong:40,Good:25,Possible:10};
+    score+=ms[best.match_type]||0;
+    if(best.urgent)score+=20;
+  }
+  score+=Math.round((c.score||50)/5); // carrier reliability 0-20
+  var days=daysSinceContact(c);
+  if(days===null)score+=20;
+  else if(days>60)score+=15;
+  else if(days>30)score+=10;
+  return score;
+}
+// One-click call logger — logs a Call entry without opening the detail panel.
+function quickLogCall(carrierId){
+  var c=carriers.find(function(x){return x.id===carrierId;});
+  if(!c)return;
+  var today=new Date().toISOString().slice(0,10);
+  if(!c.contactLog)c.contactLog=[];
+  c.contactLog.push({date:today,type:'Call',notes:'Quick log',auto:false});
+  c.lastContactedDate=today;
+  fetch('/api/carriers/'+c.id,{method:'PATCH',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({contactLog:c.contactLog,lastContactedDate:c.lastContactedDate})})
+    .then(function(r){return r.ok?r.json():null;})
+    .then(function(){showToast('Call logged for '+c.company);renderTable();})
+    .catch(function(){showToast('Saved locally');renderTable();});
+}
+
 // -- State extraction --
 function extractStateFromStr(s){
   if(!s)return null;
@@ -1884,37 +1967,65 @@ function extractStatePair(routeStr){
 // -- Lane matching --
 function getCarrierStatePairs(c){
   var pairs=[];
-  (c.preferredLanes||'').split(/·|·/).forEach(function(lane){
+  // Preferred lanes — highest priority, source = 'preferred'
+  (c.preferredLanes||'').split(/[·•\/]/).forEach(function(lane){
     var p=extractStatePair(lane.trim());
     if(p)pairs.push({orig:p.orig,dest:p.dest,source:'preferred'});
   });
+  // Load history — split by recency: ≤90 days = 'recent_history', older = 'history'
   (c.loadHistory||[]).forEach(function(h){
-    // Support both old schema (origin/dest fields) and new schema (route string)
-    var routeStr = h.route || ((h.origin && h.dest) ? h.origin+' -> '+h.dest : '');
+    var routeStr=h.route||((h.origin&&h.dest)?h.origin+' -> '+h.dest:'')||((h.load&&h.origin&&h.dest)?h.origin+' -> '+h.dest:'');
     var p=extractStatePair(routeStr);
-    if(p)pairs.push({orig:p.orig,dest:p.dest,source:'history'});
+    if(!p)return;
+    var daysAgo=historyLaneDaysAgo(h);
+    pairs.push({orig:p.orig,dest:p.dest,source:daysAgo<=90?'recent_history':'history',daysAgo:daysAgo});
   });
   return pairs;
 }
 function getCarrierMatches(c,loads){
   var pairs=getCarrierStatePairs(c);
-  if(!pairs.length)return[];
+  var homeBaseState=extractStateFromStr(c.homeBase||'');
+  if(!pairs.length&&!homeBaseState)return[];
   var typeOrder={Strong:0,Good:1,Possible:2};
+  var carrierAvgRate=parseAvgRate(c.avgRate);
   var matches=[];
   loads.forEach(function(l){
-    var lo=l.pickup_state;var ld=l.delivery_state;
+    var lo=l.pickup_state,ld=l.delivery_state;
     if(!lo||!ld)return;
+    // Equipment gate: skip loads the carrier can't haul
+    if(!equipmentCompatible(c.equipment,l.equipment))return;
     var best=null;
     for(var i=0;i<pairs.length;i++){
       var p=pairs[i];
-      if(p.orig===lo&&p.dest===ld){
+      var origM=p.orig===lo,destM=p.dest===ld;
+      if(origM&&destM){
+        // Preferred lane exact = Strong; any history exact = Good
         var t=p.source==='preferred'?'Strong':'Good';
         if(best===null||typeOrder[t]<typeOrder[best])best=t;
-      }else if(p.orig===lo||p.dest===ld){
-        if(best===null)best='Possible';
+        if(best==='Strong')break; // can't do better
+      }else if(origM||destM){
+        if(best===null||typeOrder['Possible']<typeOrder[best])best='Possible';
       }
     }
-    if(best!==null)matches.push({load_id:l.load_id,route:l.pickup_city+', '+l.pickup_state+' → '+l.delivery_city+', '+l.delivery_state,pickup_date:l.pickup_date,delivery_date:l.delivery_date,equipment:l.equipment,rate:l.rate,max_buy:l.max_buy,match_type:best});
+    // Home base: carrier based in pickup state gets Possible credit even without lane history
+    if(best===null&&homeBaseState===lo)best='Possible';
+    if(best===null)return;
+    // Rate flag: load's max_buy is meaningfully below carrier's typical rate
+    var rateFlag=false;
+    if(carrierAvgRate&&l.max_buy){
+      var mb=parseFloat(String(l.max_buy).replace(/[^0-9.]/g,''));
+      if(!isNaN(mb)&&mb<carrierAvgRate*0.85)rateFlag=true;
+    }
+    // Urgency: pickup within 2 days
+    var dtu=daysUntil(l.pickup_date);
+    var urgent=dtu!==null&&dtu>=0&&dtu<=2;
+    matches.push({
+      load_id:l.load_id,
+      route:l.pickup_city+', '+lo+' \u2192 '+l.delivery_city+', '+ld,
+      pickup_date:l.pickup_date,delivery_date:l.delivery_date,
+      equipment:l.equipment,rate:l.rate,max_buy:l.max_buy,
+      match_type:best,rateFlag:rateFlag,urgent:urgent
+    });
   });
   matches.sort(function(a,b){return typeOrder[a.match_type]-typeOrder[b.match_type];});
   return matches;
@@ -2658,31 +2769,40 @@ function saveCarrierField(field, value) {
 }
 
 // ── Get top N matched carriers for a load ─────────────────
+// Uses the same equipment gate + recency-weighted logic as getCarrierMatches.
+// Sorts by: match type → outreach priority (match strength + carrier score + contact staleness).
 function getTopMatchedCarriers(load, n) {
   if(!load)return[];
-  var pu=(load.pickup_state||'').toLowerCase();
-  var del=(load.delivery_state||'').toLowerCase();
-  var puCity=(load.pickup_city||'').toLowerCase();
-  var delCity=(load.delivery_city||'').toLowerCase();
-  var equip=(load.equipment||'').toLowerCase();
-  var scored=carriers.filter(function(c){return c.status!=='Do Not Use';}).map(function(c){
-    var pairs=getCarrierStatePairs(c);
-    var matchType='none';
-    var equipMatch=!equip||!c.equipment||(c.equipment.toLowerCase().includes(equip.split(' ')[0]));
-    for(var i=0;i<pairs.length;i++){
-      var p=pairs[i];
-      if(p.orig.toLowerCase()===pu&&p.dest.toLowerCase()===del){matchType='strong';break;}
-      else if(p.orig.toLowerCase()===pu||p.dest.toLowerCase()===del){if(matchType!=='strong')matchType='good';}
-      else if(matchType==='none'){
-        var lanes=(c.preferredLanes||'').toLowerCase();
-        if((pu&&lanes.includes(pu))||(del&&lanes.includes(del))||(puCity&&lanes.includes(puCity))||(delCity&&lanes.includes(delCity)))matchType='possible';
+  var lo=load.pickup_state||'';
+  var ld=load.delivery_state||'';
+  var results=carriers
+    .filter(function(c){return c.status!=='Do Not Use';})
+    .filter(function(c){return equipmentCompatible(c.equipment,load.equipment);})
+    .map(function(c){
+      var pairs=getCarrierStatePairs(c);
+      var homeBaseState=extractStateFromStr(c.homeBase||'');
+      var matchType='none';
+      for(var i=0;i<pairs.length;i++){
+        var p=pairs[i];
+        if(p.orig===lo&&p.dest===ld){
+          var t=p.source==='preferred'?'strong':'good';
+          if(matchType!=='strong')matchType=t;
+          if(matchType==='strong')break;
+        }else if(p.orig===lo||p.dest===ld){
+          if(matchType==='none')matchType='possible';
+        }
       }
-    }
-    return{carrier:c,matchType:matchType,equipMatch:equipMatch};
-  }).filter(function(x){return x.matchType!=='none';});
+      if(matchType==='none'&&homeBaseState===lo)matchType='possible';
+      return{carrier:c,matchType:matchType};
+    })
+    .filter(function(x){return x.matchType!=='none';});
   var order={strong:0,good:1,possible:2};
-  scored.sort(function(a,b){return order[a.matchType]-order[b.matchType]||(b.carrier.score-a.carrier.score);});
-  return scored.slice(0,n||5);
+  results.sort(function(a,b){
+    var td=order[a.matchType]-order[b.matchType];
+    if(td!==0)return td;
+    return outreachPriority(b.carrier,load.load_id)-outreachPriority(a.carrier,load.load_id);
+  });
+  return results.slice(0,n||5);
 }
 
 // ── Outreach System ───────────────────────────────────────────────────────────
@@ -2805,45 +2925,82 @@ function submitLogContact() {
 
 function generateOutreachMessage(c, type) {
   var dispatcher = c.dispatcher || 'there';
-  var firstName = dispatcher.split(' ')[0].replace(/\(.*\)/,'').trim();
+  var firstName = dispatcher.split(/[\s(]/)[0].replace(/[^A-Za-z]/g,'') || 'there';
   var company = c.company || 'your company';
-  var lanes = c.preferredLanes || c.region || 'your region';
-  var lastLoad = '';
-  if(c.loadHistory && c.loadHistory.length) {
-    var lh = c.loadHistory[c.loadHistory.length-1];
-    lastLoad = (lh.origin||'') + (lh.dest ? ' to '+lh.dest : '');
-  }
-  // Get matched loads for this carrier
+  var topLane = (c.preferredLanes||'').split(/[·•\/]/)[0].trim() || c.region || 'your lanes';
+  var carrierAvgRate = parseAvgRate(c.avgRate);
+
+  // Most recent completed load for relationship reference
+  var lastLoad = (c.loadHistory||[]).slice(-1)[0];
+  var lastLoadStr = lastLoad
+    ? ((lastLoad.origin||lastLoad.route||'')+(lastLoad.dest?' \u2192 '+lastLoad.dest:''))
+    : '';
+  var lastLoadDate = lastLoad ? (lastLoad.date||lastLoad.pickup_date||'') : '';
+
+  // Up to 3 best matched loads
   var matched = (matchedLoadsCache[c.id]||[]).slice(0,3);
+  var urgentCount = matched.filter(function(m){return m.urgent;}).length;
+
   var loadLines = matched.map(function(m){
-    return '  • Load #'+m.load_id+': '+m.route+' (PU: '+m.pickup_date+(m.max_buy?', Max: $'+Number(m.max_buy).toLocaleString():'')+')';
+    var urgMark = m.urgent ? ' \u26a1URGENT' : '';
+    var rateStr = '';
+    if(m.max_buy){
+      var mb = parseFloat(String(m.max_buy).replace(/[^0-9.]/g,''));
+      if(!isNaN(mb)){
+        rateStr = ' \u2014 Max $'+mb.toLocaleString('en-US');
+        if(carrierAvgRate){
+          var diff = mb - carrierAvgRate;
+          rateStr += ' ('+(diff>=0?'+':'')+Math.round(diff)+' vs your avg)';
+        }
+      }
+    }
+    return '  \u2022 Load #'+m.load_id+': '+m.route+'\n'
+          +'    PU: '+m.pickup_date+(m.delivery_date?' \u00b7 DO: '+m.delivery_date:'')+rateStr+urgMark;
   }).join('\n');
 
+  var urgencyLine = urgentCount
+    ? '\n\u26a1 '+urgentCount+' load'+(urgentCount>1?'s':'')+' picking up within 48 hours \u2014 time sensitive.\n'
+    : '';
+
+  var hr = '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500';
+
   if(type === 'call') {
-    return 'CALL SCRIPT — '+company+'\n'
-      +'────────────────────────────────\n'
-      +'Ask for: '+dispatcher+'\n\n'
+    return 'CALL SCRIPT \u2014 '+company+'\n'
+      +hr+'\n'
+      +'Ask for: '+dispatcher+'\n'
+      +'Phone:   '+(c.phone||'N/A')+'\n\n'
       +'Hi '+firstName+', this is [Your Name] calling from Circle Logistics.\n\n'
-      +(lastLoad ? 'We worked together on a load '+lastLoad+' — hope that went smoothly!\n\n' : '')
-      +'I\'m reaching out because we have some freight that looks like a strong fit for your lanes ('+lanes+') and wanted to see if you have trucks available.\n\n'
-      +(loadLines ? 'Current loads available:\n'+loadLines+'\n\n' : '')
-      +'Are you available and what does your capacity look like this week?\n\n'
-      +'────────────────────────────────\n'
-      +'Phone: '+c.phone+'\n'
-      +'Email: '+c.email;
+      +(lastLoadStr
+        ? 'We worked together on the '+lastLoadStr+' lane'+(lastLoadDate?' ('+lastLoadDate+')':'')+' \u2014 hope that went smoothly!\n\n'
+        : '')
+      +'I\'m calling because we have freight that looks like a strong fit for your lanes ('+topLane+') and wanted to check your availability.\n\n'
+      +(loadLines ? 'What we have right now:\n'+loadLines+'\n'+urgencyLine+'\n' : '')
+      +'Do you have capacity this week? What does your truck situation look like?\n\n'
+      +hr+'\n'
+      +'Email: '+(c.email||'N/A');
   } else if(type === 'email') {
-    return 'Subject: Load Opportunity — '+lanes+'\n\n'
+    var subject = matched.length && matched[0].route
+      ? 'Load Opportunity: '+matched[0].route
+      : 'Load Opportunities \u2014 '+topLane;
+    return 'To: '+(c.email||'')+'\n'
+      +'Subject: '+subject+'\n\n'
       +'Hi '+firstName+',\n\n'
-      +'Hope you\'re doing well! This is [Your Name] from Circle Logistics.\n\n'
-      +(lastLoad ? 'We appreciate you hauling for us previously'+( lastLoad ? ' on the '+lastLoad+' lane' : '')+'. ' : '')
-      +'I\'m reaching out because we have some loads that match your lanes and wanted to check your availability.\n\n'
-      +(loadLines ? 'Here\'s what we have available right now:\n\n'+loadLines+'\n\n' : '')
-      +'If any of these work for you or you have capacity in the '+lanes+' area, please reply or give us a call. We\'d love to get you rolling again.\n\n'
+      +(lastLoadStr
+        ? 'Thanks for running the '+lastLoadStr+' lane'+(lastLoadDate?' ('+lastLoadDate+')':'')+' with Circle Logistics \u2014 we appreciate the partnership!\n\n'
+        : 'Hope you\'re doing well! This is [Your Name] from Circle Logistics.\n\n')
+      +'I\'m reaching out because we have freight that fits your lanes and wanted to check your availability.\n\n'
+      +(loadLines ? 'Available now:\n\n'+loadLines+'\n'+urgencyLine+'\n' : '')
+      +'If any of these work, reply here or give us a call. We\'d love to keep working together.\n\n'
       +'Thanks,\n[Your Name]\nCircle Logistics\n[Your Phone]';
   } else {
-    return 'Hi '+firstName+' ('+company+'), this is [Name] from Circle Logistics. '
-      +(lastLoad ? 'We worked together on the '+lastLoad+' lane before. ' : '')
-      +'Do you have any trucks available? We have freight that could be a fit for you. Let me know! Thanks';
+    var smsLoad = matched[0]
+      ? 'Load #'+matched[0].load_id+' ('+matched[0].route+', PU '+matched[0].pickup_date+')'
+      : 'freight on your lanes';
+    return 'Hi '+firstName+' ('+company+'), [Your Name] from Circle Logistics.'
+      +(lastLoadStr?' Worked the '+lastLoadStr+' lane with you before.':'' )
+      +' Got '+smsLoad+' \u2014 interested?'
+      +(urgentCount?' Picks up within 48h.':'')
+      +' Call or text back. Thanks!';
   }
 }
 
@@ -2916,7 +3073,7 @@ getFiltered = function() {
   });
 };
 
-// ── Inject outreach chips into carrier table rows ────────────────────────────
+// ── Inject outreach chips + quick-call buttons into carrier table rows ────────
 (function(){
   if(window._outreachPatchApplied) return;
   window._outreachPatchApplied = true;
@@ -2929,16 +3086,29 @@ getFiltered = function() {
       var m = (row.getAttribute('onclick')||'').match(/selectCarrier\((\d+)\)/);
       if(!m) return;
       var c = carriers.find(function(x){ return x.id === parseInt(m[1]); });
-      if(!c || !needsOutreach(c)) return;
+      if(!c) return;
       var tds = row.querySelectorAll('td');
       for(var j=0;j<tds.length;j++){
         if(tds[j].textContent.trim().startsWith(c.company.substring(0,10))){
-          if(!tds[j].querySelector('.outreach-chip')){
+          // Outreach chip for carriers needing contact
+          if(needsOutreach(c) && !tds[j].querySelector('.outreach-chip')){
             var chip = document.createElement('span');
             chip.className = 'outreach-chip';
             chip.textContent = 'outreach';
             chip.title = c.lastContactedDate ? daysSinceContact(c)+'d since contact' : 'never contacted';
             tds[j].appendChild(chip);
+          }
+          // Quick call button — always shown so dispatcher can log calls without opening panel
+          if(!tds[j].querySelector('.quick-call-btn')){
+            var btn = document.createElement('span');
+            btn.className = 'quick-call-btn';
+            btn.textContent = '\uD83D\uDCDE';
+            btn.title = 'Log call now';
+            btn.onclick = function(e){
+              e.stopPropagation();
+              quickLogCall(c.id);
+            };
+            tds[j].appendChild(btn);
           }
           break;
         }
@@ -2966,15 +3136,25 @@ selectLoad=function(id){
     var phoneRaw=c.phone?c.phone.replace(/[^\d+]/g,''):'';
     var hwyHref=mcNum?'https://highway.com/broker/carriers/search-results?q='+encodeURIComponent(mcNum):'';
     var scoreColor=c.score>=80?'#4acc7a':c.score>=60?'#e8c44a':'#cc6a4a';
+    var days=daysSinceContact(c);
+    var contactStr=!c.lastContactedDate?'<span style="color:#e8806a;font-size:10px">Never contacted</span>'
+      :days===0?'<span style="color:#4acc7a;font-size:10px">Contacted today</span>'
+      :days<=7?'<span style="color:#4acc7a;font-size:10px">'+days+'d ago</span>'
+      :days<=30?'<span style="color:#e8c44a;font-size:10px">'+days+'d ago</span>'
+      :'<span style="color:#e8806a;font-size:10px">'+days+'d ago \u2014 due</span>';
+    var outreachBtn='<span class="quick-call-btn" title="Log call now" onclick="event.stopPropagation();quickLogCall('+c.id+')">\uD83D\uDCDE</span>';
     return '<div class="carrier-match-card">'
       +'<div class="cmc-info">'
       +'<span class="cmc-name" onclick="switchView(\'carriers\');selectCarrier('+c.id+')">'+c.company+'</span>'
       +'<div class="cmc-meta">'+(c.mc||'MC pending')+(c.equipment?' · '+c.equipment:'')+'</div>'
+      +'<div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap">'
       +'<span class="cmc-match '+m.matchType+'">'+m.matchType.toUpperCase()+'</span>'
-      +'<span style="font-size:10px;color:'+scoreColor+';margin-left:6px">Score '+c.score+'</span>'
+      +'<span style="font-size:10px;color:'+scoreColor+'">Score '+c.score+'</span>'
+      +'</div>'
+      +'<div class="cmc-outreach">'+contactStr+outreachBtn+'</div>'
       +'</div>'
       +'<div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end">'
-      +(c.phone?'<a class="cmc-call" href="tel:'+phoneRaw+'">📞 Call</a>':'')
+      +(c.phone?'<a class="cmc-call" href="tel:'+phoneRaw+'">\uD83D\uDCDE Call</a>':'')
       +(hwyHref?'<a class="cmc-highway" href="'+hwyHref+'" target="_blank" rel="noopener">Highway</a>':'')
       +'</div>'
       +'</div>';
