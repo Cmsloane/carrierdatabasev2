@@ -676,7 +676,7 @@ body.show-loads #loads-table-wrap{display:block}
     </div>
     <div class="section">
       <div class="section-label">Rates</div>
-      <div class="field-row"><span class="field-label">Freight</span><span class="field-val" id="ldp-rate" style="font-weight:600"></span></div>
+      <div class="field-row"><span class="field-label">LBR</span><span class="field-val" id="ldp-rate" style="font-weight:600"></span></div>
       <div class="field-row"><span class="field-label">Fuel (FSC)</span><span class="field-val" id="ldp-fuel"></span></div>
       <div class="field-row"><span class="field-label">Total Revenue</span><span class="field-val" id="ldp-total-rev" style="font-weight:700;border-top:1px solid rgba(255,255,255,0.07);padding-top:4px;margin-top:2px"></span></div>
       <div class="field-row"><span class="field-label">Max Buy</span><span class="field-val" id="ldp-maxbuy" style="color:#1a7a4a;font-weight:600"></span></div>
@@ -1090,8 +1090,9 @@ function selectCarrier(id){
       var urgTag=m.urgent?'<span class="urgent-badge">Urgent</span>':'';
       var rateTag=m.rateFlag?'<span class="rate-flag-badge">Low Rate</span>':'';
       var spread='';
-      if(m.max_buy&&carrierAvgRate){
-        var mb=parseFloat(String(m.max_buy).replace(/[^0-9.]/g,''));
+      var lbrVal=m.rate!=null?m.rate:m.max_buy;
+      if(lbrVal&&carrierAvgRate){
+        var mb=parseFloat(String(lbrVal).replace(/[^0-9.]/g,''));
         if(!isNaN(mb)){
           var diff=mb-carrierAvgRate;
           var sign=diff>=0?'+':'-';
@@ -1105,7 +1106,7 @@ function selectCarrier(id){
         +'</div>'
         +'<div style="font-size:12px;color:#c8cdd6;margin-top:3px">'+m.route+'</div>'
         +'<div style="font-size:11px;color:#5a6a7a;margin-top:2px">PU: '+m.pickup_date+' · DO: '+m.delivery_date+' · '+m.equipment+'</div>'
-        +'<div style="font-size:11px;color:#8a9aaa;margin-top:2px">Max Buy: '+(m.max_buy?fmt$(m.max_buy):'--')+spread+'</div>'
+        +'<div style="font-size:11px;color:#8a9aaa;margin-top:2px">LBR: '+(m.rate!=null?fmt$(m.rate):m.max_buy?fmt$(m.max_buy):'--')+' <span style="color:#4a5a6a">/ Max: '+(m.max_buy?fmt$(m.max_buy):'--')+'</span>'+spread+'</div>'
       +'</div>';
     }).join('');
   }else{matchSec.style.display='none';}
@@ -2992,10 +2993,11 @@ function generateOutreachMessage(c, type) {
   var loadLines = matched.map(function(m){
     var urgMark = m.urgent ? ' \u26a1URGENT' : '';
     var rateStr = '';
-    if(m.max_buy){
-      var mb = parseFloat(String(m.max_buy).replace(/[^0-9.]/g,''));
+    var lbrAmt = m.rate != null ? m.rate : m.max_buy;
+    if(lbrAmt){
+      var mb = parseFloat(String(lbrAmt).replace(/[^0-9.]/g,''));
       if(!isNaN(mb)){
-        rateStr = ' \u2014 Max $'+mb.toLocaleString('en-US');
+        rateStr = ' \u2014 LBR $'+mb.toLocaleString('en-US');
         if(carrierAvgRate){
           var diff = mb - carrierAvgRate;
           rateStr += ' ('+(diff>=0?'+':'')+Math.round(diff)+' vs your avg)';
