@@ -2997,7 +2997,7 @@ function generateOutreachMessage(c, type) {
     if(lbrAmt){
       var mb = parseFloat(String(lbrAmt).replace(/[^0-9.]/g,''));
       if(!isNaN(mb)){
-        rateStr = ' \u2014 LBR $'+mb.toLocaleString('en-US');
+        rateStr = ' \u2014 rate at $'+mb.toLocaleString('en-US');
         if(carrierAvgRate){
           var diff = mb - carrierAvgRate;
           rateStr += ' ('+(diff>=0?'+':'')+Math.round(diff)+' vs your avg)';
