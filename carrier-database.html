@@ -290,10 +290,17 @@ body.show-loads #loads-table-wrap{display:block}
   #table-wrap{margin-top:142px;height:calc(100vh - 142px)}
   #loads-table-wrap{margin-top:142px;height:calc(100vh - 142px)}
 
-  /* Hide Home Base, Origin, Destination columns in carrier table */
+  /* Mobile carrier table: show only Carrier | Equipment | Status | Score */
   #table-wrap table th:nth-child(3),#table-wrap table td:nth-child(3),
+  #table-wrap table th:nth-child(4),#table-wrap table td:nth-child(4),
   #table-wrap table th:nth-child(5),#table-wrap table td:nth-child(5),
-  #table-wrap table th:nth-child(6),#table-wrap table td:nth-child(6){display:none}
+  #table-wrap table th:nth-child(6),#table-wrap table td:nth-child(6),
+  #table-wrap table th:nth-child(8),#table-wrap table td:nth-child(8){display:none}
+
+  /* Tighter cell padding + compact score bar */
+  #table-wrap table td,#table-wrap table th{padding:8px 10px}
+  .score-wrap{min-width:70px;gap:5px}
+  .carrier-name{font-size:12px}.carrier-mc{font-size:10px}
   /* Hide Equipment and Weight in loads table */
   #loads-table-wrap table th:nth-child(5),#loads-table-wrap table td:nth-child(5),
   #loads-table-wrap table th:nth-child(6),#loads-table-wrap table td:nth-child(6){display:none}
