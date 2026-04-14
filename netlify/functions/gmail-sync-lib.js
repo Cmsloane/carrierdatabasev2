@@ -755,7 +755,10 @@ export async function syncNewCarriersFromBookNow(carriers, options = {}) {
 
   const accessToken = await fetchAccessToken(config);
   const daysBack = options.daysBack || 30;
-  const query = `from:noreply@circledelivers.com "Book Now Dispatch for Load" to:me newer_than:${daysBack}d`;
+  // in:inbox restricts to messages delivered to the primary inbox only —
+  // excludes any Book Now emails that were auto-filtered into other labels/folders
+  // (e.g. a "FW Carrier Sales" filter) so we only process direct bookings.
+  const query = `from:noreply@circledelivers.com "Book Now Dispatch for Load" to:me in:inbox newer_than:${daysBack}d`;
 
   const messageList = await gmailRequest('messages', accessToken, { q: query, maxResults: 50 });
   const messages = Array.isArray(messageList?.messages) ? messageList.messages : [];
