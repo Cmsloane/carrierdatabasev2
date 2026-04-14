@@ -2410,16 +2410,18 @@ function triggerCarrierSync() {
       showSyncResult(null);
     });
 }
-// Auto-poll every 60 seconds; pause when tab is hidden to conserve Netlify function invocations
-var _pollInterval = setInterval(fetchLiveState, 60000);
+// Auto-poll every 3 minutes; pause entirely when tab is hidden to conserve Netlify invocations.
+// At 3 min polling with page-visibility pause: ~200 invocations/day per user vs ~2,880 at 30s.
+var _POLL_MS = 180000;
+var _pollInterval = setInterval(fetchLiveState, _POLL_MS);
 document.addEventListener('visibilitychange', function() {
   if (document.hidden) {
     clearInterval(_pollInterval);
     _pollInterval = null;
   } else {
-    // Tab became visible — fetch immediately then resume polling
+    // Tab became visible — fetch immediately then resume
     fetchLiveState();
-    _pollInterval = setInterval(fetchLiveState, 60000);
+    _pollInterval = setInterval(fetchLiveState, _POLL_MS);
   }
 });
 // Fetch on load
