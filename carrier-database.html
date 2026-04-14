@@ -616,11 +616,13 @@ body.show-loads #loads-table-wrap{display:block}
     </div>
     <div class="section">
       <div class="section-label">Rates</div>
-      <div class="field-row"><span class="field-label">LBR</span><span class="field-val" id="ldp-rate" style="font-weight:600"></span></div>
+      <div class="field-row"><span class="field-label">Freight</span><span class="field-val" id="ldp-rate" style="font-weight:600"></span></div>
+      <div class="field-row"><span class="field-label">Fuel (FSC)</span><span class="field-val" id="ldp-fuel"></span></div>
+      <div class="field-row"><span class="field-label">Total Revenue</span><span class="field-val" id="ldp-total-rev" style="font-weight:700;border-top:1px solid rgba(255,255,255,0.07);padding-top:4px;margin-top:2px"></span></div>
       <div class="field-row"><span class="field-label">Max Buy</span><span class="field-val" id="ldp-maxbuy" style="color:#1a7a4a;font-weight:600"></span></div>
       <div class="margin-breakdown" id="ldp-margin-breakdown">
-        <div class="margin-row"><span class="margin-label">Spread (LBR → Max Buy)</span><span class="margin-val" id="ldp-spread"></span></div>
-        <div class="margin-row"><span class="margin-label">Per Mile</span><span class="margin-val" id="ldp-ppm"></span></div>
+        <div class="margin-row"><span class="margin-label">Spread (Revenue → Max Buy)</span><span class="margin-val" id="ldp-spread"></span></div>
+        <div class="margin-row"><span class="margin-label">Per Mile (Revenue)</span><span class="margin-val" id="ldp-ppm"></span></div>
         <div class="margin-row"><span class="margin-label">Margin Signal</span><span id="ldp-margin-badge"></span></div>
       </div>
     </div>
@@ -1219,6 +1221,10 @@ function selectLoad(id){
   document.getElementById('ldp-miles').textContent=l.miles!=null?l.miles+' mi':'—';
   document.getElementById('ldp-ref').textContent=l.ref_number||'—';
   document.getElementById('ldp-rate').textContent=fmt$(l.rate);
+  var fuelEl=document.getElementById('ldp-fuel');
+  if(fuelEl) fuelEl.textContent=(l.fuel&&l.fuel>0)?fmt$(l.fuel):'—';
+  var totalRevEl=document.getElementById('ldp-total-rev');
+  if(totalRevEl) totalRevEl.textContent=fmt$((l.rate||0)+(l.fuel||0));
   document.getElementById('ldp-maxbuy').textContent=fmt$(l.max_buy);
   const notesEl=document.getElementById('ldp-notes');
   const notesSec=document.getElementById('ldp-notes-section');
@@ -1410,6 +1416,7 @@ function parseTransportProHTML(htmlText){
       weight_lbs:    cells[13].trim(),
       ref_number:    cells[14].trim(),
       rate:          toNum(cells[15]),
+      fuel:          toNum(cells[16]),
       max_buy:       toNum(cells[19]),
       commodity:     cells[21].trim(),
       assigned_to:   cells[22].trim(),
@@ -1892,8 +1899,9 @@ function saveHTMLState(){
 // FEATURE: Margin badge helpers
 // ════════════════════════════════════════════════════════════════════
 function marginSpread(l){
-  if(l.rate==null||l.max_buy==null||l.max_buy===0)return null;
-  return l.rate-l.max_buy;
+  var revenue=(l.rate||0)+(l.fuel||0);
+  if(!revenue||l.max_buy==null||l.max_buy===0)return null;
+  return revenue-l.max_buy;
 }
 function marginClass(spread){
   if(spread==null)return 'margin-check';
@@ -2016,7 +2024,8 @@ selectLoad=function(id){
   if(spreadEl)spreadEl.textContent=spread!=null?(spread>=0?'+':'')+'$'+Math.abs(spread).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}):'—';
   if(spreadEl)spreadEl.style.color=spread!=null&&spread>=500?'#1a7a4a':spread!=null&&spread>=200?'#c07a10':'#4a5a6a';
   var miles=l.miles!=null?parseFloat(l.miles):null;
-  if(ppmEl)ppmEl.textContent=(l.rate!=null&&miles&&miles>0)?'$'+(l.rate/miles).toFixed(2)+'/mi':'—';
+  var totalRev=(l.rate||0)+(l.fuel||0);
+  if(ppmEl)ppmEl.textContent=(totalRev&&miles&&miles>0)?'$'+(totalRev/miles).toFixed(2)+'/mi':'—';
   if(badgeEl)badgeEl.innerHTML=marginBadgeHTML(l);
 };
 
