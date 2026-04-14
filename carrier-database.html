@@ -264,6 +264,22 @@ body.show-loads #loads-table-wrap{display:block}
 #outreach-modal .om-btn-close{padding:8px 18px;background:#1a2030;color:#8a9aaa;border:1px solid rgba(255,255,255,0.08);border-radius:6px;font-size:12px;cursor:pointer}
 /* Needs Outreach chip in table */
 .outreach-chip{display:inline-block;font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px;vertical-align:middle;background:rgba(232,196,74,0.15);color:#e8c44a;border:1px solid rgba(232,196,74,0.2)}
+/* Inline message template panel (carrier + load profiles) */
+.tmpl-panel{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:12px 14px;margin-top:2px}
+.tmpl-tabs{display:flex;gap:5px;margin-bottom:10px}
+.tmpl-tab{padding:4px 12px;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid rgba(255,255,255,0.08);color:#8a9aaa;background:none;transition:all 0.15s;white-space:nowrap}
+.tmpl-tab.active{background:#1a4a7a;color:#9acfff;border-color:rgba(74,158,255,0.3)}
+.tmpl-tab:hover:not(.active){background:rgba(255,255,255,0.05);color:#c8cdd6}
+.tmpl-textarea{width:100%;background:#0e1520;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#c8cdd6;font-size:11px;padding:10px;box-sizing:border-box;resize:vertical;font-family:'DM Mono',monospace;line-height:1.6;min-height:180px}
+.tmpl-textarea:focus{outline:none;border-color:rgba(74,158,255,0.35)}
+.tmpl-footer{display:flex;gap:7px;margin-top:8px;align-items:center}
+.tmpl-copy-btn{padding:5px 14px;background:#1a4a7a;color:#9acfff;border:none;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer}
+.tmpl-copy-btn:hover{background:#1e5a96}
+.tmpl-regen-btn{padding:5px 10px;background:none;color:#6a7a8a;border:1px solid rgba(255,255,255,0.08);border-radius:6px;font-size:11px;cursor:pointer}
+.tmpl-regen-btn:hover{color:#c8cdd6;background:rgba(255,255,255,0.04)}
+/* Carrier selector in load outreach panel */
+.ldp-carrier-selector{width:100%;background:#0e1520;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#c8cdd6;font-size:12px;padding:6px 8px;box-sizing:border-box;margin-bottom:10px;cursor:pointer}
+.ldp-carrier-selector:focus{outline:none;border-color:rgba(74,158,255,0.35)}
 
 /* ── Mobile Responsive ───────────────────────────────────── */
 @media (max-width:768px){
@@ -678,6 +694,23 @@ body.show-loads #loads-table-wrap{display:block}
       <div class="section-label">Best Carrier Matches <span id="ldp-carriers-count" style="font-size:11px;font-weight:400;color:#7a4aff;margin-left:6px"></span></div>
       <div id="ldp-carriers"></div>
     </div>
+    <!-- Outreach template section in load profile -->
+    <div class="section" id="ldp-outreach-section" style="display:none">
+      <div class="section-label" style="color:#e8c44a;border-bottom-color:rgba(232,196,74,0.2)">Outreach Templates <span id="ldp-outreach-label" style="font-size:11px;font-weight:400;color:#e8c44a;margin-left:6px"></span></div>
+      <select class="ldp-carrier-selector" id="ldp-carrier-select" onchange="switchLdpCarrier(this.value)"></select>
+      <div class="tmpl-panel">
+        <div class="tmpl-tabs">
+          <button class="tmpl-tab active" onclick="switchLdpTab('call',this)">📞 Call Script</button>
+          <button class="tmpl-tab" onclick="switchLdpTab('email',this)">✉ Email</button>
+          <button class="tmpl-tab" onclick="switchLdpTab('text',this)">💬 Text</button>
+        </div>
+        <textarea class="tmpl-textarea" id="ldp-template-text" spellcheck="false"></textarea>
+        <div class="tmpl-footer">
+          <button class="tmpl-copy-btn" onclick="copyLdpTemplate()">Copy</button>
+          <button class="tmpl-regen-btn" onclick="regenLdpTemplate()">↻ Regenerate</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -764,7 +797,22 @@ body.show-loads #loads-table-wrap{display:block}
         <textarea id="p-contact-notes" rows="2" placeholder="Notes (optional)…"></textarea>
         <div class="form-row">
           <button class="btn-log" onclick="submitLogContact()">Save Log</button>
-          <button class="btn-msg" onclick="openOutreachModal()">✉ Message Template</button>
+        </div>
+      </div>
+    </div>
+    <!-- Inline message template section — auto-populated when carrier is selected -->
+    <div class="section" id="p-template-section" style="display:none">
+      <div class="section-label" style="color:#4a9eff;border-bottom-color:rgba(74,158,255,0.2)">Message Templates</div>
+      <div class="tmpl-panel">
+        <div class="tmpl-tabs">
+          <button class="tmpl-tab active" onclick="switchPanelTab('call',this)">📞 Call Script</button>
+          <button class="tmpl-tab" onclick="switchPanelTab('email',this)">✉ Email</button>
+          <button class="tmpl-tab" onclick="switchPanelTab('text',this)">💬 Text</button>
+        </div>
+        <textarea class="tmpl-textarea" id="p-template-text" spellcheck="false"></textarea>
+        <div class="tmpl-footer">
+          <button class="tmpl-copy-btn" onclick="copyPanelTemplate()">Copy</button>
+          <button class="tmpl-regen-btn" onclick="regenPanelTemplate()">↻ Regenerate</button>
         </div>
       </div>
     </div>
@@ -3052,7 +3100,10 @@ var _selectCarrierBeforeOutreach = selectCarrier;
 selectCarrier = function(id) {
   _selectCarrierBeforeOutreach(id);
   var c = carriers.find(function(x){ return x.id === id; });
-  if(c) renderOutreachSection(c);
+  if(c) {
+    renderOutreachSection(c);
+    renderCarrierPanelTemplate(c);
+  }
   // Reset log form
   var f = document.getElementById('p-log-contact-form');
   if(f) f.style.display = 'none';
@@ -3117,7 +3168,7 @@ getFiltered = function() {
   };
 })();
 
-// ── Patch selectLoad to show matched carriers ──────────────
+// ── Patch selectLoad to show matched carriers + outreach templates ──────────────
 var _origSelectLoad2=selectLoad;
 selectLoad=function(id){
   _origSelectLoad2(id);
@@ -3127,7 +3178,12 @@ selectLoad=function(id){
   var cont=document.getElementById('ldp-carriers');
   if(!sec||!cont)return;
   var matches=getTopMatchedCarriers(l,5);
-  if(!matches.length){sec.style.display='none';return;}
+  if(!matches.length){
+    sec.style.display='none';
+    var os=document.getElementById('ldp-outreach-section');
+    if(os)os.style.display='none';
+    return;
+  }
   sec.style.display='block';
   if(cnt)cnt.textContent='('+matches.length+' found)';
   cont.innerHTML=matches.map(function(m){
@@ -3143,9 +3199,9 @@ selectLoad=function(id){
       :days<=30?'<span style="color:#e8c44a;font-size:10px">'+days+'d ago</span>'
       :'<span style="color:#e8806a;font-size:10px">'+days+'d ago \u2014 due</span>';
     var outreachBtn='<span class="quick-call-btn" title="Log call now" onclick="event.stopPropagation();quickLogCall('+c.id+')">\uD83D\uDCDE</span>';
-    return '<div class="carrier-match-card">'
+    return '<div class="carrier-match-card" onclick="switchLdpCarrier('+c.id+')" style="cursor:pointer" title="Switch outreach template to '+c.company+'">'
       +'<div class="cmc-info">'
-      +'<span class="cmc-name" onclick="switchView(\'carriers\');selectCarrier('+c.id+')">'+c.company+'</span>'
+      +'<span class="cmc-name" onclick="event.stopPropagation();switchView(\'carriers\');selectCarrier('+c.id+')">'+c.company+'</span>'
       +'<div class="cmc-meta">'+(c.mc||'MC pending')+(c.equipment?' · '+c.equipment:'')+'</div>'
       +'<div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap">'
       +'<span class="cmc-match '+m.matchType+'">'+m.matchType.toUpperCase()+'</span>'
@@ -3154,12 +3210,117 @@ selectLoad=function(id){
       +'<div class="cmc-outreach">'+contactStr+outreachBtn+'</div>'
       +'</div>'
       +'<div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end">'
-      +(c.phone?'<a class="cmc-call" href="tel:'+phoneRaw+'">\uD83D\uDCDE Call</a>':'')
-      +(hwyHref?'<a class="cmc-highway" href="'+hwyHref+'" target="_blank" rel="noopener">Highway</a>':'')
+      +(c.phone?'<a class="cmc-call" href="tel:'+phoneRaw+'" onclick="event.stopPropagation()">\uD83D\uDCDE Call</a>':'')
+      +(hwyHref?'<a class="cmc-highway" href="'+hwyHref+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">Highway</a>':'')
       +'</div>'
       +'</div>';
   }).join('');
+  // Render outreach templates for the top-matched carrier
+  renderLdpOutreach(l, matches);
 };
+
+// ── Inline carrier panel template ────────────────────────────────────────────
+var _panelTab = 'call';
+
+function renderCarrierPanelTemplate(c) {
+  var sec = document.getElementById('p-template-section');
+  var ta  = document.getElementById('p-template-text');
+  if(!sec || !ta) return;
+  if(!c) { sec.style.display = 'none'; return; }
+  sec.style.display = 'block';
+  ta.value = generateOutreachMessage(c, _panelTab);
+}
+
+function switchPanelTab(type, btn) {
+  _panelTab = type;
+  document.querySelectorAll('#p-template-section .tmpl-tab').forEach(function(t){ t.classList.remove('active'); });
+  if(btn) btn.classList.add('active');
+  var c = carriers.find(function(x){ return x.id === selectedId; });
+  if(c) { var ta = document.getElementById('p-template-text'); if(ta) ta.value = generateOutreachMessage(c, _panelTab); }
+}
+
+function copyPanelTemplate() {
+  var ta = document.getElementById('p-template-text');
+  if(!ta) return;
+  if(navigator.clipboard) { navigator.clipboard.writeText(ta.value).then(function(){ showToast('Copied \u2713'); }).catch(function(){ ta.select(); document.execCommand('copy'); showToast('Copied \u2713'); }); }
+  else { ta.select(); document.execCommand('copy'); showToast('Copied \u2713'); }
+}
+
+function regenPanelTemplate() {
+  var c = carriers.find(function(x){ return x.id === selectedId; });
+  if(c) renderCarrierPanelTemplate(c);
+}
+
+// ── Load profile outreach template ───────────────────────────────────────────
+var _ldpTab = 'call';
+var _ldpCarrierId = null;
+var _ldpCurrentLoad = null;
+
+function renderLdpOutreach(load, matches) {
+  var sec = document.getElementById('ldp-outreach-section');
+  if(!sec) return;
+  if(!matches || !matches.length) { sec.style.display = 'none'; return; }
+
+  sec.style.display = 'block';
+  _ldpCurrentLoad = load;
+  _ldpCarrierId = matches[0].carrier.id;
+
+  // Carrier selector — populated with all matched carriers
+  var sel = document.getElementById('ldp-carrier-select');
+  if(sel) {
+    sel.innerHTML = matches.map(function(m){
+      var days = daysSinceContact(m.carrier);
+      var contactNote = !m.carrier.lastContactedDate ? ' · never contacted'
+        : days !== null && days > 30 ? ' · '+days+'d ago'
+        : '';
+      return '<option value="'+m.carrier.id+'">'+m.carrier.company+' — '+m.matchType.toUpperCase()+contactNote+'</option>';
+    }).join('');
+    sel.value = String(_ldpCarrierId);
+  }
+
+  // Label
+  var lbl = document.getElementById('ldp-outreach-label');
+  if(lbl) lbl.textContent = '('+matches.length+' carrier'+(matches.length>1?'s':'')+')';
+
+  // Reset to call tab
+  _ldpTab = 'call';
+  document.querySelectorAll('#ldp-outreach-section .tmpl-tab').forEach(function(t,i){ t.classList.toggle('active', i===0); });
+
+  renderLdpTemplate();
+}
+
+function renderLdpTemplate() {
+  var c = carriers.find(function(x){ return x.id === _ldpCarrierId; });
+  var ta = document.getElementById('ldp-template-text');
+  if(!ta || !c) return;
+  ta.value = generateOutreachMessage(c, _ldpTab);
+}
+
+function switchLdpCarrier(val) {
+  var id = parseInt(val);
+  if(isNaN(id)) return;
+  _ldpCarrierId = id;
+  // Sync the selector if called from carrier card click
+  var sel = document.getElementById('ldp-carrier-select');
+  if(sel && sel.value !== String(id)) sel.value = String(id);
+  renderLdpTemplate();
+}
+
+function switchLdpTab(type, btn) {
+  _ldpTab = type;
+  document.querySelectorAll('#ldp-outreach-section .tmpl-tab').forEach(function(t){ t.classList.remove('active'); });
+  if(btn) btn.classList.add('active');
+  renderLdpTemplate();
+}
+
+function copyLdpTemplate() {
+  var ta = document.getElementById('ldp-template-text');
+  if(!ta) return;
+  if(navigator.clipboard) { navigator.clipboard.writeText(ta.value).then(function(){ showToast('Copied \u2713'); }).catch(function(){ ta.select(); document.execCommand('copy'); showToast('Copied \u2713'); }); }
+  else { ta.select(); document.execCommand('copy'); showToast('Copied \u2713'); }
+}
+
+function regenLdpTemplate() { renderLdpTemplate(); }
 
 // Re-run updateStats now that needsOutreach is defined
 if(typeof updateStats === 'function') updateStats();
