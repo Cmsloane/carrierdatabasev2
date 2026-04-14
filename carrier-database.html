@@ -1322,6 +1322,35 @@ function parseTransportProHTML(htmlText){
   const rows = Array.from(doc.querySelectorAll('tr')).filter(r => r.querySelector('td'));
   const loads = [];
 
+  // Appointment type tags (e.g. "Priority / OP8") must NEVER appear in date/time fields.
+  // They are always stripped and saved separately in appointment_note fields.
+  const APPT_TAG_RE = /^(Priority\s*\/\s*OP8|Flexible\s*\/\s*FCFS|Firm\s+Appointment)\s*$/i;
+
+  // Parses a TransportPro schedule cell (pickup or delivery) into date, time, apptNote.
+  // Handles both formats:
+  //   Multi-line: "MM/DD/YYYY\nHH:MM - HH:MM\nPriority / OP8"
+  //   Same-line:  "MM/DD/YYYY HH:MM\nPriority / OP8"
+  function parseScheduleCell(raw) {
+    var lines = raw.split(/\n|\|/).map(function(s){ return s.trim(); }).filter(Boolean);
+    // Separate appointment tag lines (always go to apptNote, never to date/time)
+    var apptNote = lines.filter(function(l){ return APPT_TAG_RE.test(l); }).join(', ');
+    var dataLines = lines.filter(function(l){ return !APPT_TAG_RE.test(l); });
+    var date = '', time = '';
+    if (dataLines.length > 0) {
+      // Check if date and time are on the same line: "MM/DD/YYYY HH:MM" or "MM/DD/YYYY HH:MM - HH:MM"
+      var m = dataLines[0].match(/^(\d{2}\/\d{2}\/\d{4})\s+(.+)$/);
+      if (m) {
+        date = m[1];
+        time = m[2].replace(/^at\s+/i, '').trim();
+      } else {
+        // Date only on first line, time on second line (if present)
+        date = dataLines[0];
+        if (dataLines.length > 1) time = dataLines[1].replace(/^at\s+/i, '').trim();
+      }
+    }
+    return { date: date, time: time, apptNote: apptNote };
+  }
+
   rows.forEach(function(row){
     const cells = Array.from(row.querySelectorAll('td')).map(function(td){
       return td.innerText || td.textContent || '';
@@ -1330,6 +1359,10 @@ function parseTransportProHTML(htmlText){
 
     const loadId = cells[1].trim();
     if(!loadId || isNaN(loadId)) return;  // skip non-load rows
+
+    // Only include loads marked for posting to load boards (col 23)
+    const postToBoards = cells[23].trim();
+    if(!/^yes$/i.test(postToBoards)) return;
 
     // Equipment + hazmat
     const equipRaw = cells[5].trim();
@@ -1347,17 +1380,10 @@ function parseTransportProHTML(htmlText){
     const pu = parseLoc(cells[7]);
     const de = parseLoc(cells[8]);
 
-    // Pickup datetime: "03/10/2026\n12:00 - 17:00\nPriority..."
-    const puLines = cells[10].split(/\n|\|/).map(s=>s.trim()).filter(Boolean);
-    const puDate = puLines[0] || '';
-    const puTime = (puLines[1] || '').replace(/^at\s+/i,'');
-
-    // Delivery datetime
-    const deLines = cells[11].split(/\n|\|/).map(s=>s.trim()).filter(Boolean);
-    const deDateRaw = deLines[0] || '';
-    const deM = deDateRaw.match(/(\d{2}\/\d{2}\/\d{4})\s*(.*)/);
-    const deDate = deM ? deM[1] : deDateRaw;
-    const deTime = deM ? deM[2].replace(/^at\s+/i,'').trim() : '';
+    // Parse pickup and delivery schedule cells — strips appointment type tags from
+    // date/time fields and captures them in appointment_note fields instead.
+    var puParsed = parseScheduleCell(cells[10]);
+    var deParsed = parseScheduleCell(cells[11]);
 
     // Terminal
     const termParts = cells[9].split(/\n|\|/).map(s=>s.trim());
@@ -1370,12 +1396,14 @@ function parseTransportProHTML(htmlText){
       customer:      cells[6].trim(),
       pickup_city:   pu.city,
       pickup_state:  pu.state,
-      pickup_date:   puDate,
-      pickup_time:   puTime,
+      pickup_date:   puParsed.date,
+      pickup_time:   puParsed.time,
+      pickup_appointment_note: puParsed.apptNote,
       delivery_city: de.city,
       delivery_state:de.state,
-      delivery_date: deDate,
-      delivery_time: deTime,
+      delivery_date: deParsed.date,
+      delivery_time: deParsed.time,
+      delivery_appointment_note: deParsed.apptNote,
       equipment:     equipment,
       hazmat:        hazmat,
       miles:         cells[12].trim(),
@@ -1385,7 +1413,7 @@ function parseTransportProHTML(htmlText){
       max_buy:       toNum(cells[19]),
       commodity:     cells[21].trim(),
       assigned_to:   cells[22].trim(),
-      post_to_boards:cells[23].trim(),
+      post_to_boards:postToBoards,
       terminal_id:   termParts[0] || '',
       terminal_rep:  termParts[1] || '',
       size:          cells[4].trim()
