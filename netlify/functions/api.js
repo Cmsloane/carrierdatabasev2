@@ -522,14 +522,19 @@ export default async (request) => {
         });
       }
 
-      // Step 2: Update existing carriers from rate confirmation threads (primary account)
+      // Step 2: Rate-con enrichment — uses the first connected user with a working token.
+      // Falls back to env-var GMAIL_REFRESH_TOKEN only if no connected account is available.
       let rcResult = { carriers, gmailSync: {} };
+      const workingUser = connectedUsers.find(u => userSyncResults.find(r => r.email === u.email && r.ok));
       try {
-        rcResult = await syncCarriersFromGmail(carriers);
+        const rcCreds = workingUser
+          ? { clientId: GOOGLE_CLIENT_ID, clientSecret: GOOGLE_CLIENT_SECRET, refreshToken: workingUser.refreshToken, userEmail: workingUser.email }
+          : null; // null → gmailConfig falls back to GMAIL_REFRESH_TOKEN env var
+        rcResult = await syncCarriersFromGmail(carriers, rcCreds);
         carriers = rcResult.carriers || carriers;
       } catch (rcErr) {
-        // RC sync failing is non-fatal — log but continue
-        userSyncResults.push({ email: 'rate-con-sync', ok: false, error: rcErr.message });
+        // Non-fatal — log and continue without rate-con enrichment
+        userSyncResults.push({ email: workingUser?.email || 'rate-con-sync', ok: false, error: 'Rate-con: ' + rcErr.message });
       }
       totalUpdated = rcResult.gmailSync?.matchedCarriers || 0;
 

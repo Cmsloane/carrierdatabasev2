@@ -300,10 +300,30 @@ function extractRoute(text) {
 
 function looksLikeRateConfirmation(subject, body) {
   const joined = `${subject}\n${body}`;
-  const keyword = /\brate\s*conf(?:irmation)?\b|\bcarrier\s*confirmation\b|\bload\s*tender\b|\bdispatch\s*confirmation\b/i.test(joined);
+  const keyword = /\brate\s*conf(?:irmation)?\b|\bcarrier\s*confirmation\b|\bload\s*tender\b|\bdispatch\s*confirmation\b|\bbooking\s*confirmation\b/i.test(joined);
   const routeOrStops = /\bpickup\b/i.test(joined) && /\bdeliver(?:y)?\b/i.test(joined);
   const money = /\$[\d,]+(?:\.\d{2})?/.test(joined);
   return keyword && (routeOrStops || money);
+}
+
+function extractMcDot(text) {
+  const mcM = text.match(/\bMC[-#\s]*(\d{5,8})\b/i);
+  const dotM = text.match(/\bDOT[-#\s]*(\d{5,9})\b/i);
+  return {
+    mc:  mcM  ? `MC-${mcM[1]}`   : '',
+    dot: dotM ? `DOT-${dotM[1]}` : ''
+  };
+}
+
+function extractEquipment(text) {
+  const EQ_TYPES = ['Dry Van', 'Reefer', 'Refrigerated', 'Flatbed', 'Power Only',
+                    'Step Deck', 'Lowboy', 'Tanker', 'Conestoga', 'RGN', 'Van'];
+  for (const t of EQ_TYPES) {
+    if (new RegExp(`\\b${t.replace(/\s/g, '\\s+')}\\b`, 'i').test(text)) {
+      return t === 'Refrigerated' ? 'Reefer' : t;
+    }
+  }
+  return '';
 }
 
 function buildHistoryDate(pickupDate, deliveryDate, messageDateIso) {
@@ -384,17 +404,21 @@ function extractRateConfirmation(headers, body, participants) {
   const text = cleanText(`${subject}\n${body}`);
   if (!looksLikeRateConfirmation(subject, text)) return null;
 
-  const route = extractRoute(text);
-  const pickupDate = extractKeywordDate(text, 'pickup|origin');
+  const route     = extractRoute(text);
+  const pickupDate   = extractKeywordDate(text, 'pickup|origin');
   const deliveryDate = extractKeywordDate(text, 'delivery|destination|consignee');
-  const rate = extractMoney(text);
-  const dispatcher = parseDisplayName(headers.from);
-  const phones = parsePhones(text).slice(0, 3);
-  const customerMatch = text.match(/\b(?:customer|shipper)\b[^\n:]{0,15}[:\-]?\s*([^\n]{3,100})/i);
+  const rate      = extractMoney(text);
+  const dispatcher   = parseDisplayName(headers.from);
+  const phones    = parsePhones(text).slice(0, 3);
+  const customerMatch = text.match(/\b(?:customer|shipper|bill\s*to)\b[^\n:]{0,15}[:\-]?\s*([^\n]{3,100})/i);
+  const { mc, dot }  = extractMcDot(text);
+  const equipment    = extractEquipment(text);
 
   return {
-    loadId: extractLoadId(text),
-    route: route.route,
+    loadId:   extractLoadId(text),
+    route:    route.route,
+    pickup:   route.pickup,
+    delivery: route.delivery,
     pickupDate,
     deliveryDate,
     latestMessageAt: messageDateIso,
@@ -403,7 +427,10 @@ function extractRateConfirmation(headers, body, participants) {
     phones,
     matchedEmails: participants,
     customer: customerMatch?.[1] ? customerMatch[1].trim() : '',
-    subject
+    subject,
+    mc,
+    dot,
+    equipment
   };
 }
 
@@ -427,7 +454,10 @@ function createAggregate() {
     dispatchers: new Set(),
     routes: new Map(),
     loadHistory: new Map(),
-    rates: []
+    rates: [],
+    mc: '',
+    dot: '',
+    equipment: ''
   };
 }
 
@@ -485,11 +515,22 @@ function summarizeCarrier(carrier, aggregate, syncMeta) {
   const carrierEmails = parseEmails(carrier?.email || '');
   const mergedEmails = appendUnique(carrierEmails, [...aggregate.matchedEmails].sort());
 
+  // Only apply email-detected values when the existing field is blank/unknown
+  const existingMc  = String(carrier?.mc  || '').trim();
+  const existingDot = String(carrier?.dot || '').trim();
+  const existingEquip = String(carrier?.equipment || '').trim();
+  const blankMc   = !existingMc  || existingMc  === '' || existingMc  === 'MC-';
+  const blankDot  = !existingDot || existingDot === '' || existingDot === 'DOT-';
+  const blankEquip = !existingEquip || existingEquip === 'Unknown';
+
   return {
     ...carrier,
-    email: mergedEmails.join(' / '),
-    phone: carrier?.phone || [...aggregate.phones].join(' / '),
+    email:     mergedEmails.join(' / '),
+    phone:     carrier?.phone     || [...aggregate.phones].join(' / '),
     dispatcher: carrier?.dispatcher || [...aggregate.dispatchers][0] || '',
+    mc:        blankMc   && aggregate.mc        ? aggregate.mc        : carrier?.mc        || '',
+    dot:       blankDot  && aggregate.dot       ? aggregate.dot       : carrier?.dot       || '',
+    equipment: blankEquip && aggregate.equipment ? aggregate.equipment : carrier?.equipment || '',
     lastActive: latestMessageAt ? latestMessageAt.slice(0, 10) : carrier?.lastActive || '',
     preferredLanes,
     avgRate,
@@ -543,6 +584,9 @@ export function applyRateConfirmationEvents(carriers, events, options) {
         aggregate.routes.set(extracted.route, (aggregate.routes.get(extracted.route) || 0) + 1);
       }
       if (extracted.rate != null) aggregate.rates.push(extracted.rate);
+      if (extracted.mc  && !aggregate.mc)  aggregate.mc  = extracted.mc;
+      if (extracted.dot && !aggregate.dot) aggregate.dot = extracted.dot;
+      if (extracted.equipment && !aggregate.equipment) aggregate.equipment = extracted.equipment;
       if (extracted.loadId || extracted.route) {
         const key = extracted.loadId || `${extracted.route}|${extracted.pickupDate}|${extracted.deliveryDate}`;
         const existing = aggregate.loadHistory.get(key) || {};
@@ -585,37 +629,46 @@ export async function syncCarriersFromGmail(carriers, credentials = null) {
   }
 
   const accessToken = await fetchAccessToken(config);
-  const messageList = await gmailRequest('messages', accessToken, {
-    q: config.query,
-    maxResults: config.maxResults,
-    labelIds: config.labelIds
-  });
-  const messages = Array.isArray(messageList?.messages) ? messageList.messages : [];
   const events = [];
 
-  for (const message of messages) {
+  // Search both inbox (inbound rate-cons from carriers) and sent mail (confirmations we sent)
+  // over 90 days with broader terms to catch as many relevant threads as possible.
+  const INBOX_QUERY = 'newer_than:90d ("rate confirmation" OR "rate con" OR "carrier confirmation" OR "load tender" OR "booking confirmation" OR "dispatch confirmation" OR "rate agreement") -in:trash -in:spam';
+  const SENT_QUERY  = 'in:sent newer_than:90d ("rate confirmation" OR "rate con" OR "booking confirmation" OR "load" OR "carrier" OR "dispatch") -in:trash';
+
+  const [inboxList, sentList] = await Promise.all([
+    gmailRequest('messages', accessToken, { q: INBOX_QUERY, maxResults: 200 }),
+    gmailRequest('messages', accessToken, { q: SENT_QUERY,  maxResults: 200 })
+  ]);
+
+  // Deduplicate by message ID before fetching full content
+  const seen = new Set();
+  const allMessages = [];
+  for (const m of [...(inboxList?.messages || []), ...(sentList?.messages || [])]) {
+    if (m?.id && !seen.has(m.id)) { seen.add(m.id); allMessages.push(m); }
+  }
+
+  for (const message of allMessages) {
     if (!message?.id) continue;
-    const payload = await gmailRequest(`messages/${encodeURIComponent(message.id)}`, accessToken, {
-      format: 'full'
-    });
+    const payload = await gmailRequest(`messages/${encodeURIComponent(message.id)}`, accessToken, { format: 'full' });
     const headers = safeHeaderMap(payload);
-    const body = extractMessageText(payload);
+    const body    = extractMessageText(payload);
     events.push({
-      subject: headers.subject || '',
-      from: headers.from || '',
-      to: headers.to || '',
-      cc: headers.cc || '',
-      bcc: headers.bcc || '',
-      replyTo: headers['reply-to'] || '',
-      deliveredTo: headers['delivered-to'] || '',
-      date: headers.date || '',
-      bodyPlain: body,
-      snippet: payload?.snippet || ''
+      subject:     headers.subject          || '',
+      from:        headers.from             || '',
+      to:          headers.to               || '',
+      cc:          headers.cc               || '',
+      bcc:         headers.bcc              || '',
+      replyTo:     headers['reply-to']      || '',
+      deliveredTo: headers['delivered-to']  || '',
+      date:        headers.date             || '',
+      bodyPlain:   body,
+      snippet:     payload?.snippet         || ''
     });
   }
 
   return applyRateConfirmationEvents(carriers, events, {
-    query: config.query,
+    query: INBOX_QUERY,
     labelIds: config.labelIds,
     userEmail: config.userEmail || 'me',
     ignoreDomains: config.ignoreDomains
