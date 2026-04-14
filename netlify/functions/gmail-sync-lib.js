@@ -557,6 +557,8 @@ export function applyRateConfirmationEvents(carriers, events, options) {
   let matchedMessages = 0;
   let rateConfirmationMessages = 0;
 
+  const unmatchedEvents = []; // RC events where no existing carrier email matched
+
   (events || []).forEach((event) => {
     const extracted = normalizeRateConfirmationEvent({ ...(event || {}), ignoreDomains });
     if (!extracted) return;
@@ -565,7 +567,11 @@ export function applyRateConfirmationEvents(carriers, events, options) {
     participants.forEach((email) => {
       (carrierEmailIndex.get(email) || []).forEach((index) => carrierIndexes.add(index));
     });
-    if (!carrierIndexes.size) return;
+    if (!carrierIndexes.size) {
+      // No existing carrier matched — save for new-carrier discovery
+      unmatchedEvents.push({ ...(event || {}), _extracted: extracted });
+      return;
+    }
 
     matchedMessages += 1;
     rateConfirmationMessages += 1;
@@ -618,8 +624,125 @@ export function applyRateConfirmationEvents(carriers, events, options) {
 
   return {
     carriers: nextCarriers,
-    gmailSync: syncMeta
+    gmailSync: syncMeta,
+    unmatched: unmatchedEvents
   };
+}
+
+// ── New-carrier discovery: unmatched rate-con events ─────────────────────────
+// Creates minimal carrier records from RC emails where no existing carrier
+// email matched. Groups by external email address; derives company name from
+// the From: display name or the email domain.
+function createCarriersFromUnmatched(unmatchedEvents, existingCarriers, ignoreDomains) {
+  const ignDomains = (ignoreDomains || DEFAULT_IGNORE_DOMAINS).map(d => d.toLowerCase());
+  const existingNames  = new Set((existingCarriers || []).map(c => (c.company || '').toLowerCase().trim()));
+  const existingEmails = new Set((existingCarriers || []).flatMap(c => parseEmails(c.email || '')));
+  let maxId = Math.max(100, ...(existingCarriers || []).map(c => Number(c.id) || 0));
+
+  // Group events by the first external participant email (the carrier's email)
+  const emailToData = new Map(); // email → { dispatcher, phones, routes, dates, rates, mc, dot, equipment, loadItems, subjects, fromName }
+
+  for (const event of (unmatchedEvents || [])) {
+    const extracted = event._extracted || normalizeRateConfirmationEvent({ ...event, ignoreDomains: ignDomains });
+    if (!extracted) continue;
+
+    const externalParticipants = (extracted.matchedEmails || [])
+      .filter(e => !shouldIgnoreEmail(e, ignDomains) && !existingEmails.has(e));
+    if (!externalParticipants.length) continue;
+
+    const repEmail = externalParticipants[0];
+    const existing = emailToData.get(repEmail) || {
+      dispatcher: '', phones: new Set(), routes: new Map(),
+      latestDate: '', rates: [], mc: '', dot: '', equipment: '',
+      loadItems: [], subjects: [], fromName: ''
+    };
+
+    if (extracted.dispatcher && !existing.dispatcher) existing.dispatcher = extracted.dispatcher;
+    // Try display name from From: header
+    if (!existing.fromName && event.from) existing.fromName = parseDisplayName(event.from);
+    (extracted.phones || []).forEach(p => existing.phones.add(p));
+    if (extracted.route) existing.routes.set(extracted.route, (existing.routes.get(extracted.route) || 0) + 1);
+    if (extracted.latestMessageAt && (!existing.latestDate || extracted.latestMessageAt > existing.latestDate)) {
+      existing.latestDate = extracted.latestMessageAt;
+    }
+    if (extracted.rate != null) existing.rates.push(extracted.rate);
+    if (extracted.mc  && !existing.mc)  existing.mc  = extracted.mc;
+    if (extracted.dot && !existing.dot) existing.dot = extracted.dot;
+    if (extracted.equipment && !existing.equipment) existing.equipment = extracted.equipment;
+    if (extracted.subject) existing.subjects.push(extracted.subject.slice(0, 80));
+    if (extracted.loadId || extracted.route) {
+      existing.loadItems.push({
+        load:         extracted.loadId || '',
+        date:         extracted.pickupDate || (extracted.latestMessageAt ? extracted.latestMessageAt.slice(0, 10) : ''),
+        origin:       extracted.pickup || '',
+        dest:         extracted.delivery || '',
+        customer:     extracted.customer || '',
+        pickupWindow: '',
+        deliveryDate: extracted.deliveryDate || '',
+        deliveryWindow: '',
+        refNumber:    '',
+        status:       'Completed'
+      });
+    }
+    emailToData.set(repEmail, existing);
+  }
+
+  const newCarriers = [];
+  for (const [repEmail, data] of emailToData) {
+    // Build company name: prefer dispatcher / display name, fall back to domain
+    let company = data.fromName || data.dispatcher || '';
+    if (!company) {
+      const domain = repEmail.split('@')[1] || '';
+      company = domain
+        .replace(/\.(com|net|org|io|us|biz|co)$/, '')
+        .replace(/[-_.]/g, ' ')
+        .replace(/\b\w/g, ch => ch.toUpperCase());
+    }
+    const nameLower = company.toLowerCase().trim();
+    if (!nameLower || existingNames.has(nameLower)) continue;
+
+    const bestRoute = [...data.routes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+    const avgRateVal = data.rates.length
+      ? data.rates.reduce((s, v) => s + v, 0) / data.rates.length
+      : null;
+    const noteSubjects = data.subjects.slice(0, 2).join(' · ');
+
+    maxId++;
+    newCarriers.push({
+      id:             maxId,
+      company,
+      mc:             data.mc || '',
+      dot:            data.dot || '',
+      equipment:      data.equipment || 'Dry Van',
+      hazmat:         'No',
+      safetyRating:   'Not Rated',
+      dispatcher:     data.dispatcher || '',
+      phone:          [...data.phones][0] || '',
+      afterHours:     '',
+      email:          repEmail,
+      preferredLanes: bestRoute,
+      homeBase:       '',
+      address:        '',
+      avgRate:        avgRateVal != null ? `$${avgRateVal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : 0,
+      insurance:      '',
+      loadsCompleted: data.loadItems.length,
+      otPickup:       0,
+      otDelivery:     0,
+      claims:         0,
+      status:         'Active',
+      score:          50,
+      region:         '',
+      lastActive:     data.latestDate ? data.latestDate.slice(0, 10) : '',
+      notes:          `Discovered via rate-con email sync.${noteSubjects ? ' ' + noteSubjects : ''}`,
+      issueFlag:      false,
+      loadHistory:    data.loadItems.slice(0, 10),
+      sources:        [{ type: 'gmail', label: 'Gmail \u00b7 Rate-Con Discovery' }]
+    });
+    existingNames.add(nameLower);
+    existingEmails.add(repEmail);
+  }
+
+  return newCarriers;
 }
 
 export async function syncCarriersFromGmail(carriers, credentials = null) {
@@ -631,13 +754,13 @@ export async function syncCarriersFromGmail(carriers, credentials = null) {
   const accessToken = await fetchAccessToken(config);
   const events = [];
 
-  // Narrower queries with tighter result limits — we pre-filter by subject before full-fetch.
-  const INBOX_QUERY = 'newer_than:60d ("rate confirmation" OR "rate con" OR "carrier confirmation" OR "load tender" OR "booking confirmation" OR "dispatch confirmation") -in:trash -in:spam';
-  const SENT_QUERY  = 'in:sent newer_than:60d ("rate confirmation" OR "rate con" OR "booking confirmation" OR "carrier") -in:trash';
+  // Broader queries — 90d window, extra terms to catch more carrier emails.
+  const INBOX_QUERY = 'newer_than:90d ("rate confirmation" OR "rate con" OR "carrier confirmation" OR "load tender" OR "booking confirmation" OR "dispatch confirmation" OR "load confirmation" OR "carrier agreement") -in:trash -in:spam';
+  const SENT_QUERY  = 'in:sent newer_than:90d ("rate confirmation" OR "rate con" OR "booking confirmation" OR "carrier" OR "load confirmation" OR "dispatch confirmation") -in:trash';
 
   const [inboxList, sentList] = await Promise.all([
-    gmailRequest('messages', accessToken, { q: INBOX_QUERY, maxResults: 80 }),
-    gmailRequest('messages', accessToken, { q: SENT_QUERY,  maxResults: 60 })
+    gmailRequest('messages', accessToken, { q: INBOX_QUERY, maxResults: 100 }),
+    gmailRequest('messages', accessToken, { q: SENT_QUERY,  maxResults: 80 })
   ]);
 
   // Deduplicate by message ID
@@ -648,8 +771,8 @@ export async function syncCarriersFromGmail(carriers, credentials = null) {
   }
 
   // Phase 1: metadata-only fetch to pre-filter by subject / snippet.
-  // Full content is only fetched for messages that look like rate confirmations.
-  const RC_RE = /rate\s*conf(?:irmation)?|carrier\s*conf|load\s*tender|dispatch\s*conf|booking\s*conf/i;
+  // Broader RC_RE catches more carrier emails including load confirmation variants.
+  const RC_RE = /rate\s*conf(?:irmation)?|carrier\s*conf|load\s*tender|dispatch\s*conf|booking\s*conf|load\s*confirm|carrier\s*agree|load\s*#\s*\d{4,}|book\s*now|freight\s*conf/i;
   const META_BATCH = 15;
   const candidateIds = [];
 
@@ -670,8 +793,8 @@ export async function syncCarriersFromGmail(carriers, credentials = null) {
     }
   }
 
-  // Phase 2: full-content fetch for confirmed candidates (cap at 25 to stay within timeout)
-  for (const msgId of candidateIds.slice(0, 25)) {
+  // Phase 2: full-content fetch for confirmed candidates (cap at 40 to stay within timeout)
+  for (const msgId of candidateIds.slice(0, 40)) {
     try {
       const payload = await gmailRequest(`messages/${encodeURIComponent(msgId)}`, accessToken, { format: 'full' });
       const headers = safeHeaderMap(payload);
@@ -691,12 +814,33 @@ export async function syncCarriersFromGmail(carriers, credentials = null) {
     } catch (_) { /* skip individual fetch errors */ }
   }
 
-  return applyRateConfirmationEvents(carriers, events, {
+  const rcResult = applyRateConfirmationEvents(carriers, events, {
     query: INBOX_QUERY,
     labelIds: config.labelIds,
     userEmail: config.userEmail || 'me',
     ignoreDomains: config.ignoreDomains
   });
+
+  // Create new carrier records from any unmatched RC events (emails with RC signals
+  // but no existing carrier email match — these are carriers not yet in the DB).
+  const rawDiscovered = createCarriersFromUnmatched(
+    rcResult.unmatched || [],
+    rcResult.carriers,
+    config.ignoreDomains
+  );
+
+  // Enrich each discovered carrier with thread history (MC/DOT, phones, lanes, rates).
+  // Cap at 15 new carriers per sync to respect Netlify timeout budget.
+  const toEnrich = rawDiscovered.slice(0, 15);
+  const enrichedDiscovered = toEnrich.length
+    ? await Promise.all(toEnrich.map(c => enrichNewCarrierFromThreads(c, accessToken).catch(() => c)))
+    : [];
+
+  return {
+    carriers:    [...rcResult.carriers, ...enrichedDiscovered],
+    gmailSync:   rcResult.gmailSync,
+    newCarriers: enrichedDiscovered
+  };
 }
 
 // ── Book Now Dispatch email parser ────────────────────────────────────────────
@@ -956,6 +1100,152 @@ async function enrichNewCarrierFromThreads(carrier, accessToken) {
   }
 
   return enriched;
+}
+
+// ── Sent-mail carrier discovery ───────────────────────────────────────────────
+// Scans ALL sent mail for the past 90 days (metadata-only first pass).
+// For each sent message with a load-related subject that was addressed to an
+// external email address not already in the carrier DB, creates a new carrier
+// record and enriches it from thread history.
+//
+// This catches carriers that were booked outside the formal Book Now / rate-con
+// workflow (direct email bookings, follow-up threads, etc.).
+export async function syncNewCarriersFromSentMail(carriers, options = {}) {
+  const config = gmailConfig(options.credentials || {});
+  if (!config.clientId || !config.clientSecret || !config.refreshToken) {
+    throw new Error('Gmail OAuth not configured.');
+  }
+  const accessToken = await fetchAccessToken(config);
+  const daysBack = options.daysBack || 90;
+
+  const SENT_QUERY = `in:sent newer_than:${daysBack}d -in:trash -in:spam`;
+  const sentList = await gmailRequest('messages', accessToken, { q: SENT_QUERY, maxResults: 200 });
+  const msgIds = (sentList?.messages || []).map(m => m.id).filter(Boolean);
+  if (!msgIds.length) return { newCarriers: [], scanned: 0 };
+
+  // Build lookup sets for existing carriers
+  const existingNames  = new Set((carriers || []).map(c => (c.company || '').toLowerCase().trim()));
+  const existingEmails = new Set((carriers || []).flatMap(c => parseEmails(c.email || '')));
+  let maxId = Math.max(100, ...(carriers || []).map(c => Number(c.id) || 0));
+
+  // Subject filter: must look like it's about a specific load or carrier booking
+  const LOAD_SUBJECT_RE = /load\s*#?\s*\d{4,}|book\s*now|carrier\s*confirm|rate\s*conf|dispatch\s*conf|booking\s*conf|load\s*confirm|load\s*tender|freight\s*conf/i;
+
+  // Phase 1: metadata scan — find To: addresses in load-related sent emails
+  const META_BATCH = 20;
+  const candidatesByEmail = new Map(); // email → { latestDate, subject, msgId }
+
+  for (let i = 0; i < msgIds.length; i += META_BATCH) {
+    const slice = msgIds.slice(i, i + META_BATCH);
+    await Promise.all(slice.map(async (id) => {
+      try {
+        const msg = await gmailRequest(`messages/${encodeURIComponent(id)}`, accessToken, {
+          format: 'metadata',
+          metadataHeaders: ['To', 'Cc', 'Subject', 'Date']
+        });
+        const h = safeHeaderMap(msg);
+        const subject = h.subject || msg?.snippet || '';
+        if (!LOAD_SUBJECT_RE.test(subject)) return; // skip unrelated sent emails
+
+        const ts = h.date ? new Date(h.date) : null;
+        const dateIso = ts && !isNaN(ts) ? ts.toISOString().slice(0, 10) : '';
+
+        const toEmails = [...parseEmails(h.to || ''), ...parseEmails(h.cc || '')];
+        for (const email of toEmails) {
+          if (shouldIgnoreEmail(email, config.ignoreDomains)) continue;
+          if (existingEmails.has(email)) continue;
+
+          const prev = candidatesByEmail.get(email);
+          if (!prev || (dateIso && dateIso > prev.latestDate)) {
+            candidatesByEmail.set(email, { latestDate: dateIso, subject: subject.slice(0, 120), msgId: id });
+          }
+        }
+      } catch (_) { /* skip */ }
+    }));
+  }
+
+  if (!candidatesByEmail.size) return { newCarriers: [], scanned: msgIds.length };
+
+  // Phase 2: full fetch for each candidate's best message to extract carrier details.
+  // Cap at 12 new carriers per sync to respect timeout budget.
+  const newCarriers = [];
+  for (const [email, candidate] of [...candidatesByEmail.entries()].slice(0, 12)) {
+    try {
+      const payload = await gmailRequest(`messages/${encodeURIComponent(candidate.msgId)}`, accessToken, { format: 'full' });
+      const headers = safeHeaderMap(payload);
+      const body    = extractMessageText(payload);
+      const combined = `${headers.subject || ''}\n${body}`;
+
+      const { mc, dot } = extractMcDot(combined);
+      const equipment   = extractEquipment(combined);
+      const phones      = parsePhones(combined);
+      const route       = extractRoute(combined);
+      const rate        = extractMoney(combined);
+      const loadId      = extractLoadId(combined);
+
+      // Build company name from email domain
+      const domain  = email.split('@')[1] || '';
+      const company = domain
+        .replace(/\.(com|net|org|io|us|biz|co)$/, '')
+        .replace(/[-_.]/g, ' ')
+        .replace(/\b\w/g, ch => ch.toUpperCase());
+
+      const nameLower = company.toLowerCase().trim();
+      if (!nameLower || existingNames.has(nameLower)) continue;
+
+      maxId++;
+      newCarriers.push({
+        id:             maxId,
+        company,
+        mc:             mc || '',
+        dot:            dot || '',
+        equipment:      equipment || 'Dry Van',
+        hazmat:         'No',
+        safetyRating:   'Not Rated',
+        dispatcher:     '',
+        phone:          phones[0] || '',
+        afterHours:     '',
+        email,
+        preferredLanes: route.route || '',
+        homeBase:       '',
+        address:        '',
+        avgRate:        rate ? `$${rate.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : 0,
+        insurance:      '',
+        loadsCompleted: loadId ? 1 : 0,
+        otPickup:       0,
+        otDelivery:     0,
+        claims:         0,
+        status:         'Active',
+        score:          50,
+        region:         '',
+        lastActive:     candidate.latestDate,
+        notes:          `Found in sent mail. Subject: "${candidate.subject}"${loadId ? ` · Load #${loadId}` : ''}`,
+        issueFlag:      false,
+        loadHistory:    loadId ? [{
+          load:         loadId,
+          date:         candidate.latestDate,
+          origin:       route.pickup || '',
+          dest:         route.delivery || '',
+          pickupWindow: '',
+          deliveryDate: '',
+          deliveryWindow: '',
+          customer:     '',
+          refNumber:    '',
+          status:       'Completed'
+        }] : [],
+        sources: [{ type: 'gmail', label: 'Gmail \u00b7 Sent Mail Discovery' }]
+      });
+      existingNames.add(nameLower);
+      existingEmails.add(email);
+    } catch (_) { /* skip */ }
+  }
+
+  // Enrich via thread history (fills in MC/DOT, dispatcher name, rates, contact dates)
+  const enriched = newCarriers.length
+    ? await Promise.all(newCarriers.map(c => enrichNewCarrierFromThreads(c, accessToken).catch(() => c)))
+    : [];
+
+  return { newCarriers: enriched, scanned: msgIds.length };
 }
 
 // ── Carrier Outreach Tracker ──────────────────────────────────────────────────

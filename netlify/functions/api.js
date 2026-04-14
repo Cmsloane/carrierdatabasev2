@@ -8,7 +8,8 @@ import {
   zapierSyncConfigStatus,
   syncCarriersFromGmail,
   syncNewCarriersFromBookNow,
-  syncCarrierOutreachFromGmail
+  syncCarrierOutreachFromGmail,
+  syncNewCarriersFromSentMail
 } from './gmail-sync-lib.js';
 
 const functionFilename = fileURLToPath(import.meta.url);
@@ -443,26 +444,31 @@ export default async (request) => {
         try {
           const creds = { clientId: GOOGLE_CLIENT_ID, clientSecret: GOOGLE_CLIENT_SECRET, refreshToken: u.refreshToken, userEmail: u.email };
 
-          // 1a + 1b run in parallel — Book Now adds new carriers; outreach scans existing ones.
-          // They start from the same carrier snapshot so new Book Now carriers won't appear
-          // in the outreach scan until the next sync (acceptable trade-off for speed).
-          const [bookNow, outreachResult] = await Promise.all([
+          // 1a + 1b + 1c run in parallel:
+          //   1a: Book Now emails → new carriers from circledelivers.com dispatch emails
+          //   1b: Outreach tracker → updates lastContactedDate on existing carriers
+          //   1c: Sent mail scan → new carriers found in load-related sent emails
+          const [bookNow, outreachResult, sentMailResult] = await Promise.all([
             syncNewCarriersFromBookNow(carriers, { credentials: creds }),
-            syncCarrierOutreachFromGmail(carriers, { credentials: creds }).catch(err => ({ carriers, updated: 0, scanned: 0, _err: err.message }))
+            syncCarrierOutreachFromGmail(carriers, { credentials: creds }).catch(err => ({ carriers, updated: 0, scanned: 0, _err: err.message })),
+            syncNewCarriersFromSentMail(carriers, { credentials: creds }).catch(err => ({ newCarriers: [], scanned: 0, _err: err.message }))
           ]);
 
-          // Merge: apply outreach updates first, then append new Book Now carriers
-          carriers = [...(outreachResult.carriers || carriers), ...bookNow.newCarriers];
-          totalNewCarriers.push(...bookNow.newCarriers);
+          // Merge: apply outreach updates first, then append new carriers from all sources
+          const allNewCarriers = [...bookNow.newCarriers, ...(sentMailResult.newCarriers || [])];
+          carriers = [...(outreachResult.carriers || carriers), ...allNewCarriers];
+          totalNewCarriers.push(...allNewCarriers);
           totalSkipped += bookNow.skipped.length;
-          totalScanned += bookNow.messagesScanned;
+          totalScanned += bookNow.messagesScanned + (sentMailResult.scanned || 0);
           const outreachUpdated = outreachResult.updated || 0;
           const outreachScanned = outreachResult.scanned || 0;
           totalOutreachUpdated += outreachUpdated;
 
           userSyncResults.push({
             email: u.email, name: u.name,
-            newCarriers: bookNow.newCarriers.length,
+            newCarriers: allNewCarriers.length,
+            newFromBookNow: bookNow.newCarriers.length,
+            newFromSentMail: (sentMailResult.newCarriers || []).length,
             scanned: bookNow.messagesScanned,
             outreachUpdated, outreachScanned,
             ok: true
@@ -476,12 +482,16 @@ export default async (request) => {
       // Also scan primary env-var account if not already covered
       if (primaryEmail && !coveredEmails.has(primaryEmail)) {
         try {
-          const bookNow = await syncNewCarriersFromBookNow(carriers);
-          carriers = [...carriers, ...bookNow.newCarriers];
-          totalNewCarriers.push(...bookNow.newCarriers);
+          const [bookNow, sentMailResult] = await Promise.all([
+            syncNewCarriersFromBookNow(carriers),
+            syncNewCarriersFromSentMail(carriers).catch(() => ({ newCarriers: [], scanned: 0 }))
+          ]);
+          const allNew = [...bookNow.newCarriers, ...(sentMailResult.newCarriers || [])];
+          carriers = [...carriers, ...allNew];
+          totalNewCarriers.push(...allNew);
           totalSkipped += bookNow.skipped.length;
-          totalScanned += bookNow.messagesScanned;
-          userSyncResults.push({ email: primaryEmail, newCarriers: bookNow.newCarriers.length, scanned: bookNow.messagesScanned, ok: true });
+          totalScanned += bookNow.messagesScanned + (sentMailResult.scanned || 0);
+          userSyncResults.push({ email: primaryEmail, newCarriers: allNew.length, newFromBookNow: bookNow.newCarriers.length, newFromSentMail: (sentMailResult.newCarriers || []).length, scanned: bookNow.messagesScanned, ok: true });
         } catch (err) {
           userSyncResults.push({ email: primaryEmail, ok: false, error: err.message });
         }
@@ -520,8 +530,9 @@ export default async (request) => {
       }
 
       // Step 2: Rate-con enrichment — uses the first connected user with a working token.
+      // Also discovers new carriers from inbox RC emails (unmatched events).
       // Falls back to env-var GMAIL_REFRESH_TOKEN only if no connected account is available.
-      let rcResult = { carriers, gmailSync: {} };
+      let rcResult = { carriers, gmailSync: {}, newCarriers: [] };
       const workingUser = connectedUsers.find(u => userSyncResults.find(r => r.email === u.email && r.ok));
       try {
         const rcCreds = workingUser
@@ -529,6 +540,10 @@ export default async (request) => {
           : null; // null → gmailConfig falls back to GMAIL_REFRESH_TOKEN env var
         rcResult = await syncCarriersFromGmail(carriers, rcCreds);
         carriers = rcResult.carriers || carriers;
+        // Track any new carriers discovered from unmatched inbox RC events
+        if (rcResult.newCarriers?.length) {
+          totalNewCarriers.push(...rcResult.newCarriers);
+        }
       } catch (rcErr) {
         // Non-fatal — log and continue without rate-con enrichment
         userSyncResults.push({ email: workingUser?.email || 'rate-con-sync', ok: false, error: 'Rate-con: ' + rcErr.message });
