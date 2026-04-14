@@ -755,10 +755,11 @@ export async function syncNewCarriersFromBookNow(carriers, options = {}) {
 
   const accessToken = await fetchAccessToken(config);
   const daysBack = options.daysBack || 30;
-  // in:inbox restricts to messages delivered to the primary inbox only —
-  // excludes any Book Now emails that were auto-filtered into other labels/folders
-  // (e.g. a "FW Carrier Sales" filter) so we only process direct bookings.
-  const query = `from:noreply@circledelivers.com "Book Now Dispatch for Load" to:me in:inbox newer_than:${daysBack}d`;
+  // to:me + exact subject phrase targets only emails sent directly to the authenticated
+  // user — not forwarded copies in other labels. Emails Conrad books are addressed to him
+  // directly from noreply@circledelivers.com; forwarded FW Carrier Sales copies have
+  // "FW:" in the subject and won't match "Book Now Dispatch for Load" exactly.
+  const query = `from:noreply@circledelivers.com "Book Now Dispatch for Load" to:me newer_than:${daysBack}d`;
 
   const messageList = await gmailRequest('messages', accessToken, { q: query, maxResults: 50 });
   const messages = Array.isArray(messageList?.messages) ? messageList.messages : [];
