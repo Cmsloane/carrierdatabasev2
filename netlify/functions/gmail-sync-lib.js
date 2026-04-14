@@ -830,8 +830,8 @@ export async function syncCarriersFromGmail(carriers, credentials = null) {
   );
 
   // Enrich each discovered carrier with thread history (MC/DOT, phones, lanes, rates).
-  // Cap at 15 new carriers per sync to respect Netlify timeout budget.
-  const toEnrich = rawDiscovered.slice(0, 15);
+  // Cap at 8 new carriers per sync to respect Netlify timeout budget.
+  const toEnrich = rawDiscovered.slice(0, 8);
   const enrichedDiscovered = toEnrich.length
     ? await Promise.all(toEnrich.map(c => enrichNewCarrierFromThreads(c, accessToken).catch(() => c)))
     : [];
@@ -1118,8 +1118,9 @@ export async function syncNewCarriersFromSentMail(carriers, options = {}) {
   const accessToken = await fetchAccessToken(config);
   const daysBack = options.daysBack || 90;
 
-  const SENT_QUERY = `in:sent newer_than:${daysBack}d -in:trash -in:spam`;
-  const sentList = await gmailRequest('messages', accessToken, { q: SENT_QUERY, maxResults: 200 });
+  // Narrow query to load-related sent mail only, small maxResults to stay within budget.
+  const SENT_QUERY = `in:sent newer_than:${daysBack}d ("load" OR "carrier" OR "booking" OR "dispatch") -in:trash -in:spam`;
+  const sentList = await gmailRequest('messages', accessToken, { q: SENT_QUERY, maxResults: 60 });
   const msgIds = (sentList?.messages || []).map(m => m.id).filter(Boolean);
   if (!msgIds.length) return { newCarriers: [], scanned: 0 };
 
@@ -1132,7 +1133,7 @@ export async function syncNewCarriersFromSentMail(carriers, options = {}) {
   const LOAD_SUBJECT_RE = /load\s*#?\s*\d{4,}|book\s*now|carrier\s*confirm|rate\s*conf|dispatch\s*conf|booking\s*conf|load\s*confirm|load\s*tender|freight\s*conf/i;
 
   // Phase 1: metadata scan — find To: addresses in load-related sent emails
-  const META_BATCH = 20;
+  const META_BATCH = 30;
   const candidatesByEmail = new Map(); // email → { latestDate, subject, msgId }
 
   for (let i = 0; i < msgIds.length; i += META_BATCH) {
@@ -1167,9 +1168,9 @@ export async function syncNewCarriersFromSentMail(carriers, options = {}) {
   if (!candidatesByEmail.size) return { newCarriers: [], scanned: msgIds.length };
 
   // Phase 2: full fetch for each candidate's best message to extract carrier details.
-  // Cap at 12 new carriers per sync to respect timeout budget.
+  // Cap at 5 new carriers per sync to stay well within Netlify timeout.
   const newCarriers = [];
-  for (const [email, candidate] of [...candidatesByEmail.entries()].slice(0, 12)) {
+  for (const [email, candidate] of [...candidatesByEmail.entries()].slice(0, 5)) {
     try {
       const payload = await gmailRequest(`messages/${encodeURIComponent(candidate.msgId)}`, accessToken, { format: 'full' });
       const headers = safeHeaderMap(payload);
@@ -1240,12 +1241,10 @@ export async function syncNewCarriersFromSentMail(carriers, options = {}) {
     } catch (_) { /* skip */ }
   }
 
-  // Enrich via thread history (fills in MC/DOT, dispatcher name, rates, contact dates)
-  const enriched = newCarriers.length
-    ? await Promise.all(newCarriers.map(c => enrichNewCarrierFromThreads(c, accessToken).catch(() => c)))
-    : [];
-
-  return { newCarriers: enriched, scanned: msgIds.length };
+  // Note: thread enrichment is intentionally skipped here to stay within Netlify's
+  // timeout budget (this runs in parallel with Book Now + outreach). The rate-con
+  // sync in Step 2 will pick up and enrich these carriers on the same or next run.
+  return { newCarriers, scanned: msgIds.length };
 }
 
 // ── Carrier Outreach Tracker ──────────────────────────────────────────────────
