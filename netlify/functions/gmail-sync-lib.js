@@ -760,3 +760,112 @@ export async function syncNewCarriersFromBookNow(carriers, options = {}) {
 
   return { newCarriers, skipped, messagesScanned: messages.length };
 }
+
+// ── Carrier Outreach Tracker ──────────────────────────────────────────────────
+// Scans the authenticated user's sent mail and inbox for emails to/from carriers
+// already in the database. Updates lastContactedDate and contactLog automatically
+// so dispatchers don't have to log email outreach manually.
+//
+// Search criteria:
+//   Sent:   in:sent newer_than:90d  — emails WE sent to a carrier email address
+//   Inbox:  in:inbox newer_than:90d — emails a carrier sent back to us
+//
+// Dedup: only updates a carrier if the detected date is newer than what is already stored.
+// contactLog: appends one "Email" entry per newly-detected date (auto:true flag marks it).
+export async function syncCarrierOutreachFromGmail(carriers, options = {}) {
+  const config = gmailConfig(options.credentials || {});
+  if (!config.clientId || !config.clientSecret || !config.refreshToken) {
+    throw new Error('Gmail OAuth not configured.');
+  }
+  const accessToken = await fetchAccessToken(config);
+  const daysBack = options.daysBack || 90;
+
+  // Build email → carrier index (normalized email → index in carriers array)
+  const emailIndex = new Map();
+  (carriers || []).forEach((c, idx) => {
+    parseEmails(c.email || '').forEach(e => {
+      if (!emailIndex.has(e)) emailIndex.set(e, idx);
+    });
+  });
+  if (emailIndex.size === 0) return { carriers, updated: 0, scanned: 0 };
+
+  // Track the most-recent detected contact per carrier (index → contact object)
+  const bestContact = new Map();
+
+  // Fetch metadata for a batch of message IDs and match against carrier emails.
+  // direction: 'sent' → check To/Cc fields; 'received' → check From field.
+  async function fetchAndMatch(ids, direction) {
+    const BATCH = 20;
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const slice = ids.slice(i, i + BATCH);
+      await Promise.all(slice.map(async (id) => {
+        try {
+          const msg = await gmailRequest(`messages/${encodeURIComponent(id)}`, accessToken, {
+            format: 'metadata',
+            metadataHeaders: ['To', 'From', 'Cc', 'Date', 'Subject']
+          });
+          const h = safeHeaderMap(msg);
+          const ts = msg?.internalDate ? new Date(parseInt(msg.internalDate)) : null;
+          if (!ts || isNaN(ts)) return;
+
+          const candidates = direction === 'sent'
+            ? [...parseEmails(h.to || ''), ...parseEmails(h.cc || '')]
+            : parseEmails(h.from || '');
+
+          for (const email of candidates) {
+            const idx = emailIndex.get(email);
+            if (idx == null) continue;
+            const prev = bestContact.get(idx);
+            if (!prev || ts > prev.date) {
+              bestContact.set(idx, {
+                date: ts,
+                dateIso: ts.toISOString().slice(0, 10),
+                subject: (h.subject || '').slice(0, 120),
+                direction
+              });
+            }
+            break;
+          }
+        } catch (_) { /* skip individual message errors */ }
+      }));
+    }
+  }
+
+  // List sent mail and inbox messages (metadata-only — much faster than full format)
+  const [sentList, inboxList] = await Promise.all([
+    gmailRequest('messages', accessToken, { q: `in:sent newer_than:${daysBack}d -in:trash`, maxResults: 300 }),
+    gmailRequest('messages', accessToken, { q: `in:inbox newer_than:${daysBack}d -in:trash`, maxResults: 200 })
+  ]);
+  const sentIds   = (sentList?.messages  || []).map(m => m.id).filter(Boolean);
+  const inboxIds  = (inboxList?.messages || []).map(m => m.id).filter(Boolean);
+
+  await fetchAndMatch(sentIds,  'sent');
+  await fetchAndMatch(inboxIds, 'received');
+
+  // Apply updates — only if detected date is newer than what's already stored
+  let updated = 0;
+  const nextCarriers = (carriers || []).map((c, idx) => {
+    const contact = bestContact.get(idx);
+    if (!contact) return c;
+    if (contact.dateIso <= (c.lastContactedDate || '')) return c; // nothing newer
+
+    updated++;
+
+    // Build a concise log note from the email subject
+    const direction  = contact.direction === 'sent' ? 'Outreach' : 'Reply from carrier';
+    const noteText   = contact.subject ? `${direction}: "${contact.subject}"` : direction;
+    const logEntry   = { date: contact.dateIso, type: 'Email', notes: noteText, auto: true };
+
+    // Don't duplicate if an entry with this exact date + type already exists
+    const existingLog = Array.isArray(c.contactLog) ? c.contactLog : [];
+    const alreadyLogged = existingLog.some(e => e.date === contact.dateIso && e.type === 'Email');
+
+    return {
+      ...c,
+      lastContactedDate: contact.dateIso,
+      contactLog: alreadyLogged ? existingLog : [...existingLog, logEntry]
+    };
+  });
+
+  return { carriers: nextCarriers, updated, scanned: sentIds.length + inboxIds.length };
+}

@@ -2338,13 +2338,16 @@ function showSyncResult(result) {
       titleEl && (titleEl.textContent = 'GMAIL SYNC COMPLETE');
     }
 
+    var outreachCount = result.outreachUpdated || 0;
+
     html += '<div class="srp-body">';
     if (nothingNew) {
       html += '<div class="srp-row"><span class="srp-val srp-scanned">✓</span><span class="srp-lbl">no new carriers found</span></div>';
     } else {
-      html += '<div class="srp-row"><span class="srp-val srp-new">+' + newCount + '</span><span class="srp-lbl">new carriers added</span></div>';
+      if (newCount > 0) html += '<div class="srp-row"><span class="srp-val srp-new">+' + newCount + '</span><span class="srp-lbl">new carriers added</span></div>';
       if (updCount > 0) html += '<div class="srp-row"><span class="srp-val srp-updated">+' + updCount + '</span><span class="srp-lbl">updated from rate confirmations</span></div>';
     }
+    if (outreachCount > 0) html += '<div class="srp-row"><span class="srp-val" style="color:#7ab3ff">✉&nbsp;' + outreachCount + '</span><span class="srp-lbl">carrier profiles updated with email contact</span></div>';
     if (result.skipped > 0) html += '<div class="srp-row"><span class="srp-val srp-skipped">' + result.skipped + '</span><span class="srp-lbl">already in database (skipped)</span></div>';
     html += '<div class="srp-row"><span class="srp-val srp-scanned">' + scanned + '</span><span class="srp-lbl">messages scanned</span></div>';
     html += '<div class="srp-row"><span class="srp-val" style="color:#4a5a6a;font-size:11px">rev&nbsp;' + (result.revision || _liveRevision) + '</span><span class="srp-lbl">database revision</span></div>';

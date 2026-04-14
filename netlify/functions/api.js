@@ -7,7 +7,8 @@ import {
   gmailSyncConfigStatus,
   zapierSyncConfigStatus,
   syncCarriersFromGmail,
-  syncNewCarriersFromBookNow
+  syncNewCarriersFromBookNow,
+  syncCarrierOutreachFromGmail
 } from './gmail-sync-lib.js';
 
 const functionFilename = fileURLToPath(import.meta.url);
@@ -429,9 +430,10 @@ export default async (request) => {
       let totalSkipped = 0;
       let totalScanned = 0;
       let totalUpdated = 0;
+      let totalOutreachUpdated = 0;
       const userSyncResults = [];
 
-      // Step 1: Scan each connected user's Gmail for Book Now emails
+      // Step 1: Scan each connected user's Gmail for Book Now emails + outreach threads
       const primaryEmail = process.env.GMAIL_USER_EMAIL || '';
       const coveredEmails = new Set();
 
@@ -440,12 +442,34 @@ export default async (request) => {
         coveredEmails.add(u.email);
         try {
           const creds = { clientId: GOOGLE_CLIENT_ID, clientSecret: GOOGLE_CLIENT_SECRET, refreshToken: u.refreshToken, userEmail: u.email };
+
+          // 1a. New carriers from Book Now dispatch emails
           const bookNow = await syncNewCarriersFromBookNow(carriers, { credentials: creds });
           carriers = [...carriers, ...bookNow.newCarriers];
           totalNewCarriers.push(...bookNow.newCarriers);
           totalSkipped += bookNow.skipped.length;
           totalScanned += bookNow.messagesScanned;
-          userSyncResults.push({ email: u.email, name: u.name, newCarriers: bookNow.newCarriers.length, scanned: bookNow.messagesScanned, ok: true });
+
+          // 1b. Outreach tracking — scan sent/inbox for emails to/from known carriers
+          let outreachUpdated = 0;
+          let outreachScanned = 0;
+          try {
+            const outreach = await syncCarrierOutreachFromGmail(carriers, { credentials: creds });
+            carriers = outreach.carriers;
+            outreachUpdated = outreach.updated;
+            outreachScanned = outreach.scanned;
+            totalOutreachUpdated += outreachUpdated;
+          } catch (outreachErr) {
+            // Non-fatal — outreach tracking failure should not block the rest of sync
+          }
+
+          userSyncResults.push({
+            email: u.email, name: u.name,
+            newCarriers: bookNow.newCarriers.length,
+            scanned: bookNow.messagesScanned,
+            outreachUpdated, outreachScanned,
+            ok: true
+          });
           await store.setJSON(`user-${u.email}`, { ...u, lastSync: nowIso() });
         } catch (err) {
           userSyncResults.push({ email: u.email, name: u.name, ok: false, error: err.message });
@@ -520,6 +544,7 @@ export default async (request) => {
         newCarrierNames: totalNewCarriers.map(c => c.company),
         skipped: totalSkipped,
         updatedFromRateCons: totalUpdated,
+        outreachUpdated: totalOutreachUpdated,
         messagesScanned: totalScanned + (rcResult.gmailSync?.scannedMessages || 0),
         accountsScanned: userSyncResults.filter(u => u.ok).length,
         partialAuthFail,
@@ -527,7 +552,7 @@ export default async (request) => {
         userResults: userSyncResults,
         revision: synced.meta.revision,
         carriersUpdatedAt: synced.carriersUpdatedAt,
-        nothingNew: totalNewCarriers.length === 0 && totalUpdated === 0
+        nothingNew: totalNewCarriers.length === 0 && totalUpdated === 0 && totalOutreachUpdated === 0
       };
 
       const userRows = userSyncResults.map(u =>
