@@ -631,40 +631,64 @@ export async function syncCarriersFromGmail(carriers, credentials = null) {
   const accessToken = await fetchAccessToken(config);
   const events = [];
 
-  // Search both inbox (inbound rate-cons from carriers) and sent mail (confirmations we sent)
-  // over 90 days with broader terms to catch as many relevant threads as possible.
-  const INBOX_QUERY = 'newer_than:90d ("rate confirmation" OR "rate con" OR "carrier confirmation" OR "load tender" OR "booking confirmation" OR "dispatch confirmation" OR "rate agreement") -in:trash -in:spam';
-  const SENT_QUERY  = 'in:sent newer_than:90d ("rate confirmation" OR "rate con" OR "booking confirmation" OR "load" OR "carrier" OR "dispatch") -in:trash';
+  // Narrower queries with tighter result limits — we pre-filter by subject before full-fetch.
+  const INBOX_QUERY = 'newer_than:60d ("rate confirmation" OR "rate con" OR "carrier confirmation" OR "load tender" OR "booking confirmation" OR "dispatch confirmation") -in:trash -in:spam';
+  const SENT_QUERY  = 'in:sent newer_than:60d ("rate confirmation" OR "rate con" OR "booking confirmation" OR "carrier") -in:trash';
 
   const [inboxList, sentList] = await Promise.all([
-    gmailRequest('messages', accessToken, { q: INBOX_QUERY, maxResults: 200 }),
-    gmailRequest('messages', accessToken, { q: SENT_QUERY,  maxResults: 200 })
+    gmailRequest('messages', accessToken, { q: INBOX_QUERY, maxResults: 80 }),
+    gmailRequest('messages', accessToken, { q: SENT_QUERY,  maxResults: 60 })
   ]);
 
-  // Deduplicate by message ID before fetching full content
+  // Deduplicate by message ID
   const seen = new Set();
   const allMessages = [];
   for (const m of [...(inboxList?.messages || []), ...(sentList?.messages || [])]) {
     if (m?.id && !seen.has(m.id)) { seen.add(m.id); allMessages.push(m); }
   }
 
-  for (const message of allMessages) {
-    if (!message?.id) continue;
-    const payload = await gmailRequest(`messages/${encodeURIComponent(message.id)}`, accessToken, { format: 'full' });
-    const headers = safeHeaderMap(payload);
-    const body    = extractMessageText(payload);
-    events.push({
-      subject:     headers.subject          || '',
-      from:        headers.from             || '',
-      to:          headers.to               || '',
-      cc:          headers.cc               || '',
-      bcc:         headers.bcc              || '',
-      replyTo:     headers['reply-to']      || '',
-      deliveredTo: headers['delivered-to']  || '',
-      date:        headers.date             || '',
-      bodyPlain:   body,
-      snippet:     payload?.snippet         || ''
-    });
+  // Phase 1: metadata-only fetch to pre-filter by subject / snippet.
+  // Full content is only fetched for messages that look like rate confirmations.
+  const RC_RE = /rate\s*conf(?:irmation)?|carrier\s*conf|load\s*tender|dispatch\s*conf|booking\s*conf/i;
+  const META_BATCH = 15;
+  const candidateIds = [];
+
+  for (let i = 0; i < allMessages.length; i += META_BATCH) {
+    const slice = allMessages.slice(i, i + META_BATCH);
+    const metas = await Promise.all(slice.map(m =>
+      gmailRequest(`messages/${encodeURIComponent(m.id)}`, accessToken, {
+        format: 'metadata',
+        metadataHeaders: ['Subject', 'From', 'To', 'Date']
+      }).catch(() => null)
+    ));
+    for (const meta of metas) {
+      if (!meta?.id) continue;
+      const h = safeHeaderMap(meta);
+      if (RC_RE.test(h.subject || '') || RC_RE.test(meta.snippet || '')) {
+        candidateIds.push(meta.id);
+      }
+    }
+  }
+
+  // Phase 2: full-content fetch for confirmed candidates (cap at 25 to stay within timeout)
+  for (const msgId of candidateIds.slice(0, 25)) {
+    try {
+      const payload = await gmailRequest(`messages/${encodeURIComponent(msgId)}`, accessToken, { format: 'full' });
+      const headers = safeHeaderMap(payload);
+      const body    = extractMessageText(payload);
+      events.push({
+        subject:     headers.subject          || '',
+        from:        headers.from             || '',
+        to:          headers.to               || '',
+        cc:          headers.cc               || '',
+        bcc:         headers.bcc              || '',
+        replyTo:     headers['reply-to']      || '',
+        deliveredTo: headers['delivered-to']  || '',
+        date:        headers.date             || '',
+        bodyPlain:   body,
+        snippet:     payload?.snippet         || ''
+      });
+    } catch (_) { /* skip individual fetch errors */ }
   }
 
   return applyRateConfirmationEvents(carriers, events, {
@@ -733,7 +757,7 @@ export async function syncNewCarriersFromBookNow(carriers, options = {}) {
   const daysBack = options.daysBack || 30;
   const query = `from:noreply@circledelivers.com "Book Now Dispatch for Load" to:me newer_than:${daysBack}d`;
 
-  const messageList = await gmailRequest('messages', accessToken, { q: query, maxResults: 100 });
+  const messageList = await gmailRequest('messages', accessToken, { q: query, maxResults: 50 });
   const messages = Array.isArray(messageList?.messages) ? messageList.messages : [];
 
   // Build lookup sets for existing carriers
@@ -886,8 +910,8 @@ export async function syncCarrierOutreachFromGmail(carriers, options = {}) {
 
   // List sent mail and inbox messages (metadata-only — much faster than full format)
   const [sentList, inboxList] = await Promise.all([
-    gmailRequest('messages', accessToken, { q: `in:sent newer_than:${daysBack}d -in:trash`, maxResults: 300 }),
-    gmailRequest('messages', accessToken, { q: `in:inbox newer_than:${daysBack}d -in:trash`, maxResults: 200 })
+    gmailRequest('messages', accessToken, { q: `in:sent newer_than:${daysBack}d -in:trash`, maxResults: 100 }),
+    gmailRequest('messages', accessToken, { q: `in:inbox newer_than:${daysBack}d -in:trash`, maxResults: 75 })
   ]);
   const sentIds   = (sentList?.messages  || []).map(m => m.id).filter(Boolean);
   const inboxIds  = (inboxList?.messages || []).map(m => m.id).filter(Boolean);

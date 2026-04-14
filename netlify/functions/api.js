@@ -443,25 +443,22 @@ export default async (request) => {
         try {
           const creds = { clientId: GOOGLE_CLIENT_ID, clientSecret: GOOGLE_CLIENT_SECRET, refreshToken: u.refreshToken, userEmail: u.email };
 
-          // 1a. New carriers from Book Now dispatch emails
-          const bookNow = await syncNewCarriersFromBookNow(carriers, { credentials: creds });
-          carriers = [...carriers, ...bookNow.newCarriers];
+          // 1a + 1b run in parallel — Book Now adds new carriers; outreach scans existing ones.
+          // They start from the same carrier snapshot so new Book Now carriers won't appear
+          // in the outreach scan until the next sync (acceptable trade-off for speed).
+          const [bookNow, outreachResult] = await Promise.all([
+            syncNewCarriersFromBookNow(carriers, { credentials: creds }),
+            syncCarrierOutreachFromGmail(carriers, { credentials: creds }).catch(err => ({ carriers, updated: 0, scanned: 0, _err: err.message }))
+          ]);
+
+          // Merge: apply outreach updates first, then append new Book Now carriers
+          carriers = [...(outreachResult.carriers || carriers), ...bookNow.newCarriers];
           totalNewCarriers.push(...bookNow.newCarriers);
           totalSkipped += bookNow.skipped.length;
           totalScanned += bookNow.messagesScanned;
-
-          // 1b. Outreach tracking — scan sent/inbox for emails to/from known carriers
-          let outreachUpdated = 0;
-          let outreachScanned = 0;
-          try {
-            const outreach = await syncCarrierOutreachFromGmail(carriers, { credentials: creds });
-            carriers = outreach.carriers;
-            outreachUpdated = outreach.updated;
-            outreachScanned = outreach.scanned;
-            totalOutreachUpdated += outreachUpdated;
-          } catch (outreachErr) {
-            // Non-fatal — outreach tracking failure should not block the rest of sync
-          }
+          const outreachUpdated = outreachResult.updated || 0;
+          const outreachScanned = outreachResult.scanned || 0;
+          totalOutreachUpdated += outreachUpdated;
 
           userSyncResults.push({
             email: u.email, name: u.name,
