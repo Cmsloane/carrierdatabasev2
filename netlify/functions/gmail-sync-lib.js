@@ -838,7 +838,123 @@ export async function syncNewCarriersFromBookNow(carriers, options = {}) {
     carrierEmails.forEach(e => existingEmails.add(e));
   }
 
-  return { newCarriers, skipped, messagesScanned: messages.length };
+  // Cross-reference each new carrier's email against sent + inbox threads to
+  // pull in MC/DOT, equipment, phones, rates, lanes, and prior contact history.
+  // Run all lookups in parallel — one Gmail search + up to 5 full fetches per carrier.
+  const enrichedCarriers = newCarriers.length
+    ? await Promise.all(newCarriers.map(c => enrichNewCarrierFromThreads(c, accessToken).catch(() => c)))
+    : [];
+
+  return { newCarriers: enrichedCarriers, skipped, messagesScanned: messages.length };
+}
+
+// ── Thread enrichment for newly-discovered carriers ───────────────────────────
+// When a new carrier is found via a Book Now email, this function checks whether
+// we already have email history with them (sent or received) and extracts any
+// additional data — MC/DOT, equipment, phones, rates, lanes, contact dates.
+// Called once per new carrier; runs in parallel across all new carriers.
+async function enrichNewCarrierFromThreads(carrier, accessToken) {
+  const carrierEmails = parseEmails(carrier.email || '');
+  if (!carrierEmails.length) return carrier;
+
+  // Build a query that matches emails where the carrier is sender OR recipient.
+  // Gmail's {X Y} syntax means "X OR Y" inside a grouped term.
+  const emailParts = carrierEmails.map(e => `{from:${e} to:${e}}`).join(' ');
+  const query = `(${emailParts}) newer_than:365d -in:trash -in:spam`;
+
+  let messageList;
+  try {
+    messageList = await gmailRequest('messages', accessToken, { q: query, maxResults: 8 });
+  } catch (_) { return carrier; }
+
+  const msgIds = (messageList?.messages || []).map(m => m.id).filter(Boolean);
+  if (!msgIds.length) return carrier;
+
+  // Fetch up to 5 messages in parallel (full format to get body + headers)
+  const payloads = await Promise.all(
+    msgIds.slice(0, 5).map(id =>
+      gmailRequest(`messages/${encodeURIComponent(id)}`, accessToken, { format: 'full' })
+        .catch(() => null)
+    )
+  );
+
+  const enriched = { ...carrier };
+  let mostRecentDate = '';
+  const contactLogEntries = [];
+  const textChunks = [];
+
+  for (const payload of payloads) {
+    if (!payload) continue;
+    const headers = safeHeaderMap(payload);
+    const body    = extractMessageText(payload);
+    const dateStr = headers.date || '';
+    const ts      = dateStr ? new Date(dateStr) : null;
+    const dateIso = ts && !isNaN(ts) ? ts.toISOString().slice(0, 10) : '';
+    const subject = (headers.subject || '').slice(0, 120);
+
+    textChunks.push(`${subject}\n${body}`);
+
+    if (dateIso && (!mostRecentDate || dateIso > mostRecentDate)) {
+      mostRecentDate = dateIso;
+    }
+
+    // Determine direction: did the carrier send it, or did we?
+    const fromEmails   = parseEmails(headers.from || '');
+    const isFromCarrier = fromEmails.some(e => carrierEmails.includes(e));
+    const direction    = isFromCarrier ? 'Reply from carrier' : 'Outreach';
+    const noteText     = subject ? `${direction}: "${subject}"` : direction;
+
+    if (dateIso) {
+      contactLogEntries.push({ date: dateIso, type: 'Email', notes: noteText, auto: true });
+    }
+  }
+
+  const combinedText = textChunks.join('\n\n');
+
+  // Extract structured data from all thread text combined
+  const { mc, dot } = extractMcDot(combinedText);
+  const equipment   = extractEquipment(combinedText);
+  const phones      = parsePhones(combinedText);
+  const route       = extractRoute(combinedText);
+  const rate        = extractMoney(combinedText);
+
+  // Fill in blank fields — never overwrite data that came from the Book Now email
+  if (!enriched.mc  && mc)  enriched.mc  = mc;
+  if (!enriched.dot && dot) enriched.dot = dot;
+  // Override the default 'Dry Van' assumption only when we find something more specific
+  if (equipment && equipment !== 'Dry Van' && (!enriched.equipment || enriched.equipment === 'Dry Van')) {
+    enriched.equipment = equipment;
+  }
+  // Add phone from thread if Book Now didn't provide one
+  if (!enriched.phone && phones.length) enriched.phone = phones[0];
+  // Fill preferred lanes if Book Now route was empty or we found a richer one
+  if (route.route && !enriched.preferredLanes) enriched.preferredLanes = route.route;
+  // Set avg rate if found
+  if (rate && !enriched.avgRate) enriched.avgRate = `$${rate.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+
+  // Set lastContactedDate from most recent thread
+  if (mostRecentDate) enriched.lastContactedDate = mostRecentDate;
+
+  // Merge contact log entries (dedup by date+type, sort newest first)
+  if (contactLogEntries.length) {
+    const existing = Array.isArray(enriched.contactLog) ? enriched.contactLog : [];
+    const merged   = [...existing];
+    for (const entry of contactLogEntries) {
+      if (!merged.some(e => e.date === entry.date && e.type === entry.type)) {
+        merged.push(entry);
+      }
+    }
+    merged.sort((a, b) => b.date.localeCompare(a.date));
+    enriched.contactLog = merged;
+  }
+
+  // Append a note about the prior thread history
+  if (msgIds.length > 0) {
+    const threadNote = `${msgIds.length} prior email thread${msgIds.length !== 1 ? 's' : ''} found`;
+    enriched.notes = [enriched.notes, threadNote].filter(Boolean).join(' · ');
+  }
+
+  return enriched;
 }
 
 // ── Carrier Outreach Tracker ──────────────────────────────────────────────────
