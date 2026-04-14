@@ -564,6 +564,38 @@ body.show-loads #loads-table-wrap{display:block}
     Upload Loads (.htm / .pdf)
     <input type="file" id="loads-file-input" accept=".htm,.html,.pdf" style="display:none" onchange="handleLoadsUpload(event)">
   </label>
+  <button id="archive-loads-btn" onclick="openArchiveModal()" title="View previous load batches" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:#1a2a3a;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#8a9aaa;font-size:12px;cursor:pointer;white-space:nowrap;transition:background 0.15s,color 0.15s">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
+    Archived Loads <span id="archive-count-badge" style="background:rgba(255,255,255,0.08);border-radius:10px;padding:1px 6px;font-size:11px"></span>
+  </button>
+</div>
+
+<!-- Archive Modal -->
+<div id="archive-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.7);align-items:flex-start;justify-content:center;padding-top:60px" onclick="if(event.target===this)closeArchiveModal()">
+  <div style="background:#0d1220;border:1px solid rgba(255,255,255,0.1);border-radius:12px;width:min(96vw,1000px);max-height:80vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.07)">
+      <div style="font-weight:600;font-size:15px;color:#e8e8e0">Archived Loads <span id="archive-modal-count" style="font-size:12px;color:#4a5a6a;font-weight:400;margin-left:8px"></span></div>
+      <input id="archive-search" placeholder="Search load #, city, customer..." oninput="renderArchiveTable()" style="background:#1a2230;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#e8e8e0;font-size:13px;padding:6px 10px;width:280px;outline:none">
+      <button onclick="closeArchiveModal()" style="background:none;border:none;color:#4a5a6a;font-size:20px;cursor:pointer;padding:0 4px;line-height:1">&times;</button>
+    </div>
+    <div style="overflow-y:auto;flex:1">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead style="position:sticky;top:0;background:#0d1220;z-index:1">
+          <tr style="border-bottom:1px solid rgba(255,255,255,0.08)">
+            <th style="text-align:left;padding:10px 14px;color:#4a5a6a;font-weight:500;white-space:nowrap">Load #</th>
+            <th style="text-align:left;padding:10px 14px;color:#4a5a6a;font-weight:500">Route</th>
+            <th style="text-align:left;padding:10px 14px;color:#4a5a6a;font-weight:500;white-space:nowrap">Pickup</th>
+            <th style="text-align:left;padding:10px 14px;color:#4a5a6a;font-weight:500">Customer</th>
+            <th style="text-align:right;padding:10px 14px;color:#4a5a6a;font-weight:500">Freight</th>
+            <th style="text-align:right;padding:10px 14px;color:#4a5a6a;font-weight:500">Fuel</th>
+            <th style="text-align:left;padding:10px 14px;color:#4a5a6a;font-weight:500;font-size:11px">Archived From</th>
+          </tr>
+        </thead>
+        <tbody id="archive-table-body"></tbody>
+      </table>
+      <div id="archive-empty" style="display:none;padding:40px;text-align:center;color:#4a5a6a;font-size:13px">No archived loads found.</div>
+    </div>
+  </div>
 </div>
 <div id="loads-table-wrap" class="loads-view">
   <table>
@@ -1245,6 +1277,79 @@ function updateLoadsStats(){
   document.getElementById('ls-synced').textContent=formatSyncTime(loadsData.synced_at||'');
   updateCarriersStats();
   document.getElementById('tab-loads-count').textContent=loads.length;
+  // Update archive badge
+  var archiveCount=(loadsData.archive||[]).length;
+  var badge=document.getElementById('archive-count-badge');
+  if(badge) badge.textContent=archiveCount>0?archiveCount:'';
+}
+
+// ── ARCHIVE MODAL ─────────────────────────────────────────────────────────────
+function openArchiveModal(){
+  var modal=document.getElementById('archive-modal');
+  if(!modal)return;
+  modal.style.display='flex';
+  document.getElementById('archive-search').value='';
+  renderArchiveTable();
+}
+
+function closeArchiveModal(){
+  var modal=document.getElementById('archive-modal');
+  if(modal) modal.style.display='none';
+}
+
+function renderArchiveTable(){
+  var archive=(loadsData&&loadsData.archive)||[];
+  var q=(document.getElementById('archive-search').value||'').toLowerCase().trim();
+  var filtered=archive.filter(function(l){
+    if(!q)return true;
+    return (l.load_id||'').toLowerCase().includes(q)
+      ||(l.customer||'').toLowerCase().includes(q)
+      ||(l.pickup_city||'').toLowerCase().includes(q)
+      ||(l.pickup_state||'').toLowerCase().includes(q)
+      ||(l.delivery_city||'').toLowerCase().includes(q)
+      ||(l.delivery_state||'').toLowerCase().includes(q)
+      ||(l.commodity||'').toLowerCase().includes(q)
+      ||(l._archivedFrom||'').toLowerCase().includes(q);
+  });
+  // Sort newest first by archived date
+  filtered.sort(function(a,b){
+    return (b._archivedAt||'').localeCompare(a._archivedAt||'');
+  });
+  var tbody=document.getElementById('archive-table-body');
+  var empty=document.getElementById('archive-empty');
+  var countEl=document.getElementById('archive-modal-count');
+  if(countEl) countEl.textContent=filtered.length+' of '+archive.length+' loads';
+  if(!filtered.length){
+    tbody.innerHTML='';
+    if(empty) empty.style.display='block';
+    return;
+  }
+  if(empty) empty.style.display='none';
+  tbody.innerHTML=filtered.map(function(l){
+    var route=(l.pickup_city||'')+(l.pickup_state?', '+l.pickup_state:'')+' → '+(l.delivery_city||'')+(l.delivery_state?', '+l.delivery_state:'');
+    var batchLabel=(l._archivedFrom||'').replace('uploaded:','').replace(/.*[/\\]/,'');
+    var batchDate=l._archivedAt?l._archivedAt.slice(0,10):'';
+    return '<tr style="border-bottom:1px solid rgba(255,255,255,0.04);transition:background 0.1s" onmouseover="this.style.background=\'rgba(255,255,255,0.03)\'" onmouseout="this.style.background=\'\'">'
+      +'<td style="padding:9px 14px;color:#7ab3ff;font-weight:500;white-space:nowrap">'+l.load_id+'</td>'
+      +'<td style="padding:9px 14px;color:#c8d8e8;font-size:12px">'+route+'</td>'
+      +'<td style="padding:9px 14px;color:#8a9aaa;white-space:nowrap;font-size:12px">'+formatParsedDate(l.pickup_date)+'</td>'
+      +'<td style="padding:9px 14px;color:#8a9aaa;font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+( l.customer||'—')+'</td>'
+      +'<td style="padding:9px 14px;text-align:right;color:#e8e8e0;font-size:12px">'+(l.rate?fmt$(l.rate):'—')+'</td>'
+      +'<td style="padding:9px 14px;text-align:right;color:#8a9aaa;font-size:12px">'+(l.fuel&&l.fuel>0?fmt$(l.fuel):'—')+'</td>'
+      +'<td style="padding:9px 14px;color:#4a5a6a;font-size:11px">'+batchLabel+(batchDate?' · '+batchDate:'')+'</td>'
+      +'</tr>';
+  }).join('');
+}
+
+function formatParsedDate(d){
+  if(!d)return'—';
+  // MM/DD/YYYY → short readable
+  var m=d.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if(m){
+    var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return months[parseInt(m[1])-1]+' '+parseInt(m[2]);
+  }
+  return d;
 }
 
 function switchView(view){
@@ -1300,26 +1405,69 @@ function purgePastLoads(loads){
 function applyParsedLoads(parsed, filename){
   var active=purgePastLoads(parsed);
   var removed=parsed.length-active.length;
+
+  // Archive previous loads before replacing them
+  var prevLoads=(loadsData&&loadsData.loads)||[];
+  var prevArchive=(loadsData&&loadsData.archive)||[];
+  var prevBatch=loadsData&&loadsData.filters_applied||'';
+  var prevSyncedAt=loadsData&&loadsData.synced_at||'';
+  // Tag each old load with its source batch then merge into archive
+  var archivedLoads=prevLoads.map(function(l){
+    return Object.assign({},l,{_archived:true,_archivedFrom:prevBatch,_archivedAt:prevSyncedAt});
+  });
+  var newArchive=prevArchive.concat(archivedLoads);
+
+  var now=new Date();
+  var syncedAt=now.toISOString().replace(/\.\d+Z$/,'Z');
   loadsData = {
-    synced_at: new Date().toISOString().slice(0,19),
+    synced_at: syncedAt,
     filters_applied: 'uploaded:' + filename,
     total_available: parsed.length,
     loads_captured: active.length,
-    loads: active
+    loads: active,
+    archive: newArchive
   };
   computeAllMatches();
   updateLoadsStats();
   renderLoads();
   renderTable();
   updateCarriersStats();
-  var now=new Date();
   var h2=now.getHours(),m2=now.getMinutes(),ap=h2>=12?'PM':'AM';
   h2=h2%12||12;var ts=h2+':'+(m2<10?'0':'')+m2+' '+ap;
   var msg='✓ '+active.length+' loads loaded from '+filename.replace(/.*[/\\]/,'');
   if(removed>0) msg+=' ('+removed+' past pickup removed)';
+  if(archivedLoads.length>0) msg+=' · '+archivedLoads.length+' previous loads archived';
   msg+=' · '+ts;
   showToast(msg);
-  console.log('Loaded ' + active.length + ' loads from ' + filename + (removed?' ('+removed+' expired removed)':''));
+  console.log('Loaded '+active.length+' loads from '+filename+(removed?' ('+removed+' expired removed)':'')+(archivedLoads.length?' ('+archivedLoads.length+' archived)':''));
+
+  // Persist to Netlify Blobs so uploads survive page refreshes
+  pushLoadsToNetlify();
+}
+
+function pushLoadsToNetlify(){
+  var payload={
+    carriers: carriers,
+    loadsData: loadsData,
+    carriersUpdatedAt: carriersUpdatedAt||new Date().toISOString()
+  };
+  fetch('/api/state/sync',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload)
+  })
+  .then(function(r){return r.json();})
+  .then(function(result){
+    if(result.error){
+      showToast('⚠ Loads saved locally but failed to sync to server: '+(result.message||result.error),true);
+    } else {
+      var rev=result.meta&&result.meta.revision;
+      showToast('✓ Loads synced to server'+(rev?' (rev '+rev+')':''));
+    }
+  })
+  .catch(function(){
+    showToast('⚠ Loads saved locally — server sync failed. Will retry on next save.',true);
+  });
 }
 
 function parseTransportProHTML(htmlText){
@@ -2262,8 +2410,18 @@ function triggerCarrierSync() {
       showSyncResult(null);
     });
 }
-// Auto-poll every 30 seconds to keep timestamps current
-setInterval(fetchLiveState, 30000);
+// Auto-poll every 60 seconds; pause when tab is hidden to conserve Netlify function invocations
+var _pollInterval = setInterval(fetchLiveState, 60000);
+document.addEventListener('visibilitychange', function() {
+  if (document.hidden) {
+    clearInterval(_pollInterval);
+    _pollInterval = null;
+  } else {
+    // Tab became visible — fetch immediately then resume polling
+    fetchLiveState();
+    _pollInterval = setInterval(fetchLiveState, 60000);
+  }
+});
 // Fetch on load
 fetchLiveState();
 updateStats();renderTable();updateLoadsStats();computeAllMatches();
