@@ -1560,39 +1560,63 @@ function parseTransportProHTML(htmlText){
   const rows = Array.from(doc.querySelectorAll('tr')).filter(r => r.querySelector('td'));
   const loads = [];
 
-  // Appointment type tags (e.g. "Priority / OP8") must NEVER appear in date/time fields.
-  // They are always stripped and saved separately in appointment_note fields.
-  const APPT_TAG_RE = /^(Priority\s*\/\s*OP8|Flexible\s*\/\s*FCFS|Firm\s+Appointment)\s*$/i;
+  // Parses a TransportPro schedule <td> element into { date, time, apptNote }.
+  // Uses DOM extraction so <br>→\n conversion is reliable across all browsers.
+  // The appointment tag (Priority / OP8, Firm Appointment, Critical Cargo, etc.) is always
+  // in the grey <font> element — extracted directly so no regex whitelist is needed.
+  // Supported date/time formats:
+  //   Separate lines: "MM/DD/YYYY\nHH:MM - HH:MM"   or   "MM/DD/YYYY\nat HH:MM"
+  //   Same line:      "MM/DD/YYYY HH:MM"             or   "MM/DD/YYYY HH:MM - HH:MM"
+  //   Date only:      "MM/DD/YYYY"
+  function parseScheduleCell(tdEl) {
+    // 1. Extract appointment tag from the <font> element (grey metadata text).
+    //    This catches ALL tag types (Priority / OP8, Firm Appointment, Flexible / FCFS,
+    //    Critical Cargo, and any future types) without a hardcoded whitelist.
+    var apptNote = '';
+    var fontEl = tdEl.querySelector('font');
+    if (fontEl) apptNote = fontEl.textContent.trim();
 
-  // Parses a TransportPro schedule cell (pickup or delivery) into date, time, apptNote.
-  // Handles both formats:
-  //   Multi-line: "MM/DD/YYYY\nHH:MM - HH:MM\nPriority / OP8"
-  //   Same-line:  "MM/DD/YYYY HH:MM\nPriority / OP8"
-  function parseScheduleCell(raw) {
-    var lines = raw.split(/\n|\|/).map(function(s){ return s.trim(); }).filter(Boolean);
-    // Separate appointment tag lines (always go to apptNote, never to date/time)
-    var apptNote = lines.filter(function(l){ return APPT_TAG_RE.test(l); }).join(', ');
-    var dataLines = lines.filter(function(l){ return !APPT_TAG_RE.test(l); });
+    // 2. Clone the td, remove the <font> tag (apptNote already captured),
+    //    replace all <br> with newline chars, then extract clean text.
+    var clone = tdEl.cloneNode(true);
+    clone.querySelectorAll('font').forEach(function(f){ f.remove(); });
+    clone.querySelectorAll('br').forEach(function(br){
+      br.parentNode.replaceChild(clone.ownerDocument.createTextNode('\n'), br);
+    });
+    var raw = clone.textContent || '';
+
+    // 3. Normalize any backslash-separated dates (e.g. "04\15\2026" → "04/15/2026")
+    raw = raw.replace(/(\d{2})\\(\d{2})\\(\d{4})/g, '$1/$2/$3');
+
+    var lines = raw.split(/\n/).map(function(s){ return s.trim(); }).filter(Boolean);
     var date = '', time = '';
-    if (dataLines.length > 0) {
+    if (lines.length > 0) {
       // Check if date and time are on the same line: "MM/DD/YYYY HH:MM" or "MM/DD/YYYY HH:MM - HH:MM"
-      var m = dataLines[0].match(/^(\d{2}\/\d{2}\/\d{4})\s+(.+)$/);
+      var m = lines[0].match(/^(\d{2}\/\d{2}\/\d{4})\s+(.+)$/);
       if (m) {
         date = m[1];
         time = m[2].replace(/^at\s+/i, '').trim();
       } else {
         // Date only on first line, time on second line (if present)
-        date = dataLines[0];
-        if (dataLines.length > 1) time = dataLines[1].replace(/^at\s+/i, '').trim();
+        date = lines[0];
+        if (lines.length > 1) time = lines[1].replace(/^at\s+/i, '').trim();
       }
     }
     return { date: date, time: time, apptNote: apptNote };
   }
 
-  rows.forEach(function(row){
-    const cells = Array.from(row.querySelectorAll('td')).map(function(td){
-      return td.innerText || td.textContent || '';
+  // Helper: extract clean text from a td, replacing <br> with \n.
+  function tdText(tdEl) {
+    var clone = tdEl.cloneNode(true);
+    clone.querySelectorAll('br').forEach(function(br){
+      br.parentNode.replaceChild(clone.ownerDocument.createTextNode('\n'), br);
     });
+    return clone.textContent || '';
+  }
+
+  rows.forEach(function(row){
+    const tds = Array.from(row.querySelectorAll('td'));
+    const cells = tds.map(tdText);
     while(cells.length < 25) cells.push('');
 
     const loadId = cells[1].trim();
@@ -1618,10 +1642,10 @@ function parseTransportProHTML(htmlText){
     const pu = parseLoc(cells[7]);
     const de = parseLoc(cells[8]);
 
-    // Parse pickup and delivery schedule cells — strips appointment type tags from
-    // date/time fields and captures them in appointment_note fields instead.
-    var puParsed = parseScheduleCell(cells[10]);
-    var deParsed = parseScheduleCell(cells[11]);
+    // Parse pickup and delivery schedule cells via DOM (not raw text strings) so that
+    // <br> → newline conversion and appointment tag extraction are always correct.
+    var puParsed = parseScheduleCell(tds[10] || document.createElement('td'));
+    var deParsed = parseScheduleCell(tds[11] || document.createElement('td'));
 
     // Terminal
     const termParts = cells[9].split(/\n|\|/).map(s=>s.trim());
