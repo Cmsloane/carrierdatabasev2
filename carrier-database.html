@@ -933,16 +933,28 @@ function getFiltered(){
   return list;
 }
 
+// Extract only "City, ST" from a raw location string that may have trailing garbage
+// (e.g. "PORT ALLEN, LA On Wed, Apr 16..." → "PORT ALLEN, LA")
+function cleanCityState(raw){
+  var s=(raw||'').trim();
+  // Match the first "one or more words + comma + 2-letter state" group, stop there
+  var m=s.match(/^([\w\s\.\-]+),\s*([A-Z]{2})\b/);
+  if(m)return m[1].trim()+', '+m[2];
+  // Fallback: strip common date/time noise and return trimmed string
+  return s.replace(/\s+(on\s+\w+|at\s+\d|–|—|\d{1,2}:\d{2}).*/i,'').trim()||s;
+}
+
 function laneInfo(laneStr){
   var lanes=laneStr||'';
-  // Try both arrow variants (→ U+2192 and → lookalikes)
+  // Use the first lane segment only (before any · separators)
   var first=lanes.split(/\s*[·\u00b7]\s*/)[0].trim();
-  var hasArrow=first.indexOf('\u2192')>=0||first.indexOf('\u2794')>=0||first.indexOf(' \u2192 ')>=0;
-  if(!hasArrow)return{recent:first||'—',orig:'—',dest:'—'};
-  var parts=first.split(/\s*[\u2192\u2794\u27a1]\s*/);
-  var orig=(parts[0]||'').replace(/\s*\([^)]*\)\s*$/,'').trim()||'—';
-  var dest=(parts[1]||'').replace(/\s*\([^)]*\)\s*$/,'').trim()||'—';
-  var recent=orig==='—'?first:(orig+' \u2192 '+dest);
+  // Try all arrow variants
+  var hasArrow=first.indexOf('\u2192')>=0||first.indexOf('\u2794')>=0||first.indexOf('\u27a1')>=0||first.indexOf(' -> ')>=0;
+  if(!hasArrow)return{recent:cleanCityState(first)||'—',orig:'—',dest:'—'};
+  var parts=first.split(/\s*[\u2192\u2794\u27a1]|->\s*/);
+  var orig=cleanCityState((parts[0]||'').replace(/\s*\([^)]*\)\s*$/,''))||'—';
+  var dest=cleanCityState((parts[1]||'').replace(/\s*\([^)]*\)\s*$/,''))||'—';
+  var recent=orig==='—'?'—':(orig+' \u2192 '+dest);
   return{recent:recent,orig:orig,dest:dest};
 }
 
@@ -2028,33 +2040,69 @@ function extractStateFromStr(s){
   for(var i=m.length-1;i>=0;i--){if(STATE_ABBREVS.has(m[i]))return m[i];}
   return null;
 }
+// Extract city name (lowercase) from "City, ST ..." strings
+function extractCityFromStr(s){
+  if(!s)return '';
+  var m=(s||'').match(/^([A-Za-z\s\.\-]+),\s*[A-Z]{2}\b/);
+  return m?m[1].trim().toLowerCase():'';
+}
 function extractStatePair(routeStr){
-  var parts=(routeStr||'').split(/→|->|\bto\b/i);
+  var parts=(routeStr||'').split(/\s*[\u2192\u2794\u27a1]|->\s*|\bto\b/i);
   if(parts.length<2)return null;
   var o=extractStateFromStr(parts[0]);
   var d=extractStateFromStr(parts[1]);
   if(!o||!d)return null;
-  return{orig:o,dest:d};
+  var oc=extractCityFromStr(parts[0].trim());
+  var dc=extractCityFromStr(parts[1].trim());
+  return{orig:o,dest:d,origCity:oc,destCity:dc};
 }
 
 // -- Lane matching --
+// Returns deduplicated pairs with frequency count and city-level data.
+// Each pair: { orig, dest, origCity, destCity, source, daysAgo, count }
+// source priority: preferred > recent_history (≤90d) > history (>90d)
 function getCarrierStatePairs(c){
-  var pairs=[];
-  // Preferred lanes — highest priority, source = 'preferred'
-  (c.preferredLanes||'').split(/[·•\/]/).forEach(function(lane){
-    var p=extractStatePair(lane.trim());
-    if(p)pairs.push({orig:p.orig,dest:p.dest,source:'preferred'});
+  var seen={};  // key = "ORIG:DEST", value = pair object
+  var srcRank={preferred:0,recent_history:1,history:2};
+
+  function addPair(orig,dest,origCity,destCity,source,daysAgo){
+    var key=orig+':'+dest;
+    var ex=seen[key];
+    if(!ex){
+      seen[key]={orig:orig,dest:dest,origCity:origCity||'',destCity:destCity||'',
+                 source:source,daysAgo:daysAgo!=null?daysAgo:9999,count:1};
+    } else {
+      ex.count++;
+      // Keep best source; keep nearest daysAgo
+      if(srcRank[source]<srcRank[ex.source])ex.source=source;
+      if(daysAgo!=null&&daysAgo<ex.daysAgo)ex.daysAgo=daysAgo;
+      // Accumulate city info from any entry that has it
+      if(!ex.origCity&&origCity)ex.origCity=origCity;
+      if(!ex.destCity&&destCity)ex.destCity=destCity;
+    }
+  }
+
+  // Preferred lanes — clean each segment before parsing
+  (c.preferredLanes||'').split(/[·•]/).forEach(function(lane){
+    var p=extractStatePair(cleanCityState(lane.trim())||lane.trim());
+    if(!p)p=extractStatePair(lane.trim());
+    if(p)addPair(p.orig,p.dest,p.origCity,p.destCity,'preferred',null);
   });
-  // Load history — split by recency: ≤90 days = 'recent_history', older = 'history'
+
+  // Load history — tagged by recency
   (c.loadHistory||[]).forEach(function(h){
-    var routeStr=h.route||((h.origin&&h.dest)?h.origin+' -> '+h.dest:'')||((h.load&&h.origin&&h.dest)?h.origin+' -> '+h.dest:'');
+    var routeStr=h.route||((h.origin&&h.dest)?h.origin+' → '+h.dest:'');
     var p=extractStatePair(routeStr);
     if(!p)return;
     var daysAgo=historyLaneDaysAgo(h);
-    pairs.push({orig:p.orig,dest:p.dest,source:daysAgo<=90?'recent_history':'history',daysAgo:daysAgo});
+    addPair(p.orig,p.dest,p.origCity||extractCityFromStr(h.origin||''),
+            p.destCity||extractCityFromStr(h.dest||''),
+            daysAgo<=90?'recent_history':'history',daysAgo);
   });
-  return pairs;
+
+  return Object.keys(seen).map(function(k){return seen[k];});
 }
+
 function getCarrierMatches(c,loads){
   var pairs=getCarrierStatePairs(c);
   var homeBaseState=extractStateFromStr(c.homeBase||'');
@@ -2062,34 +2110,51 @@ function getCarrierMatches(c,loads){
   var typeOrder={Strong:0,Good:1,Possible:2};
   var carrierAvgRate=parseAvgRate(c.avgRate);
   var matches=[];
+
   loads.forEach(function(l){
     var lo=l.pickup_state,ld=l.delivery_state;
     if(!lo||!ld)return;
-    // Equipment gate: skip loads the carrier can't haul
     if(!equipmentCompatible(c.equipment,l.equipment))return;
-    var best=null;
+
+    var best=null,bestCount=0,cityMatch=false;
+    var loadOrigCity=(l.pickup_city||'').toLowerCase();
+    var loadDestCity=(l.delivery_city||'').toLowerCase();
+
     for(var i=0;i<pairs.length;i++){
       var p=pairs[i];
       var origM=p.orig===lo,destM=p.dest===ld;
       if(origM&&destM){
-        // Preferred lane exact = Strong; any history exact = Good
         var t=p.source==='preferred'?'Strong':'Good';
-        if(best===null||typeOrder[t]<typeOrder[best])best=t;
-        if(best==='Strong')break; // can't do better
-      }else if(origM||destM){
-        if(best===null||typeOrder['Possible']<typeOrder[best])best='Possible';
+        var isNew=best===null||typeOrder[t]<typeOrder[best];
+        if(isNew){best=t;bestCount=p.count;}
+        else if(t===best&&p.count>bestCount){bestCount=p.count;}
+        // City-level exact match: upgrade Good → Strong
+        if(t==='Good'&&p.origCity&&p.destCity
+           &&p.origCity===loadOrigCity&&p.destCity===loadDestCity){
+          best='Strong';cityMatch=true;
+        }
+        if(best==='Strong'&&cityMatch)break;
+      } else if(origM||destM){
+        if(best===null||typeOrder['Possible']<typeOrder[best]){best='Possible';bestCount=p.count;}
       }
     }
-    // Home base: carrier based in pickup state gets Possible credit even without lane history
-    if(best===null&&homeBaseState===lo)best='Possible';
+
+    // Reverse lane: carrier returning empty from delivery → Possible
+    if(best===null){
+      for(var j=0;j<pairs.length;j++){
+        if(pairs[j].orig===ld&&pairs[j].dest===lo){best='Possible';bestCount=pairs[j].count;break;}
+      }
+    }
+
+    // Home base in pickup state → Possible
+    if(best===null&&homeBaseState===lo){best='Possible';bestCount=0;}
     if(best===null)return;
-    // Rate flag: load's max_buy is meaningfully below carrier's typical rate
+
     var rateFlag=false;
     if(carrierAvgRate&&l.max_buy){
       var mb=parseFloat(String(l.max_buy).replace(/[^0-9.]/g,''));
       if(!isNaN(mb)&&mb<carrierAvgRate*0.85)rateFlag=true;
     }
-    // Urgency: pickup within 2 days
     var dtu=daysUntil(l.pickup_date);
     var urgent=dtu!==null&&dtu>=0&&dtu<=2;
     matches.push({
@@ -2097,10 +2162,15 @@ function getCarrierMatches(c,loads){
       route:l.pickup_city+', '+lo+' \u2192 '+l.delivery_city+', '+ld,
       pickup_date:l.pickup_date,delivery_date:l.delivery_date,
       equipment:l.equipment,rate:l.rate,max_buy:l.max_buy,
-      match_type:best,rateFlag:rateFlag,urgent:urgent
+      match_type:best,rateFlag:rateFlag,urgent:urgent,
+      lane_count:bestCount,city_match:cityMatch
     });
   });
-  matches.sort(function(a,b){return typeOrder[a.match_type]-typeOrder[b.match_type];});
+  matches.sort(function(a,b){
+    var td=typeOrder[a.match_type]-typeOrder[b.match_type];
+    if(td!==0)return td;
+    return(b.lane_count||0)-(a.lane_count||0); // tiebreak: more runs on this lane = higher
+  });
   return matches;
 }
 function computeAllMatches(){
@@ -2842,37 +2912,56 @@ function saveCarrierField(field, value) {
 }
 
 // ── Get top N matched carriers for a load ─────────────────
-// Uses the same equipment gate + recency-weighted logic as getCarrierMatches.
-// Sorts by: match type → outreach priority (match strength + carrier score + contact staleness).
+// Mirrors getCarrierMatches: equipment gate, city-level upgrade,
+// reverse lane detection, frequency tiebreak, outreach priority sort.
 function getTopMatchedCarriers(load, n) {
   if(!load)return[];
   var lo=load.pickup_state||'';
   var ld=load.delivery_state||'';
+  var loadOrigCity=(load.pickup_city||'').toLowerCase();
+  var loadDestCity=(load.delivery_city||'').toLowerCase();
+  var order={strong:0,good:1,possible:2};
+
   var results=carriers
     .filter(function(c){return c.status!=='Do Not Use';})
     .filter(function(c){return equipmentCompatible(c.equipment,load.equipment);})
     .map(function(c){
       var pairs=getCarrierStatePairs(c);
       var homeBaseState=extractStateFromStr(c.homeBase||'');
-      var matchType='none';
+      var matchType='none',bestCount=0,cityMatch=false;
       for(var i=0;i<pairs.length;i++){
         var p=pairs[i];
-        if(p.orig===lo&&p.dest===ld){
+        var origM=p.orig===lo,destM=p.dest===ld;
+        if(origM&&destM){
           var t=p.source==='preferred'?'strong':'good';
-          if(matchType!=='strong')matchType=t;
-          if(matchType==='strong')break;
-        }else if(p.orig===lo||p.dest===ld){
-          if(matchType==='none')matchType='possible';
+          if(matchType==='none'||order[t]<order[matchType]){matchType=t;bestCount=p.count;}
+          else if(t===matchType&&p.count>bestCount){bestCount=p.count;}
+          // City-level: exact city+state in history → upgrade good to strong
+          if(t==='good'&&p.origCity&&p.destCity
+             &&p.origCity===loadOrigCity&&p.destCity===loadDestCity){
+            matchType='strong';cityMatch=true;
+          }
+          if(matchType==='strong'&&cityMatch)break;
+        } else if(origM||destM){
+          if(matchType==='none'){matchType='possible';bestCount=p.count;}
+        }
+      }
+      // Reverse lane: carrier returning empty from delivery destination
+      if(matchType==='none'){
+        for(var j=0;j<pairs.length;j++){
+          if(pairs[j].orig===ld&&pairs[j].dest===lo){matchType='possible';bestCount=pairs[j].count;break;}
         }
       }
       if(matchType==='none'&&homeBaseState===lo)matchType='possible';
-      return{carrier:c,matchType:matchType};
+      return{carrier:c,matchType:matchType,laneCount:bestCount,cityMatch:cityMatch};
     })
     .filter(function(x){return x.matchType!=='none';});
-  var order={strong:0,good:1,possible:2};
+
   results.sort(function(a,b){
     var td=order[a.matchType]-order[b.matchType];
     if(td!==0)return td;
+    var fd=(b.laneCount||0)-(a.laneCount||0);
+    if(fd!==0)return fd;
     return outreachPriority(b.carrier,load.load_id)-outreachPriority(a.carrier,load.load_id);
   });
   return results.slice(0,n||5);
