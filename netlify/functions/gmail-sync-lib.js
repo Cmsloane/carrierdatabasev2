@@ -277,20 +277,56 @@ function extractKeywordLocation(text, label) {
   return match?.[1] ? match[1].trim() : '';
 }
 
-function extractRoute(text) {
-  const direct = text.match(/([A-Z][A-Za-z .'-]+,\s*[A-Z]{2})\s*(?:→|->|-->| to )\s*([A-Z][A-Za-z .'-]+,\s*[A-Z]{2})/i);
-  if (direct?.[1] && direct?.[2]) {
-    return {
-      route: `${direct[1].trim()}→${direct[2].trim()}`,
-      pickup: direct[1].trim(),
-      delivery: direct[2].trim()
-    };
+// Valid US state codes — used to reject false-positive city/state matches in email text
+const US_STATES = new Set(['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC','ON','BC','AB','QC','MB','SK']);
+
+// Known noise words/phrases that appear before or instead of city names in emails
+const CITY_NOISE_RE = /^(Location|Located|Location\s+of|Origin\s*:|Pickup\s*:|Delivery\s*:|Destination\s*:|Consignee\s*:|From\s*:|Shipper\s*:|Carrier\s+booked\s+on|booked\s+on|ated\s+outside\s+of|outside\s+of)\s+/gi;
+const CITY_GARBAGE_WORDS = /\b(Location|Located|Carrier|Happyrobot|booked|outside|Transportation|Offer|Incorporated|Logistics|Trucking|Express|Freight|Services|Systems)\b/i;
+
+/**
+ * Validate and clean a raw "City, ST" string extracted from email text.
+ * Returns "City, ST" on success, '' if it doesn't look like a real city/state.
+ */
+function cleanRouteCity(raw) {
+  if (!raw) return '';
+  let s = raw.trim();
+  // Strip known label prefixes (loop in case multiple stack)
+  for (let i = 0; i < 4; i++) {
+    const prev = s;
+    s = s.replace(CITY_NOISE_RE, '');
+    if (s === prev) break;
   }
-  const pickup = extractKeywordLocation(text, 'pickup|origin');
-  const delivery = extractKeywordLocation(text, 'delivery|destination|consignee');
+  // Must be "City words, ST" with a valid state code
+  const m = s.match(/^([A-Z][A-Za-z\s.\-']{0,45}),\s*([A-Z]{2})\b/i);
+  if (!m) return '';
+  const state = m[2].toUpperCase();
+  if (!US_STATES.has(state)) return '';           // invalid state code (e.g. "Ap" for April)
+  const city = m[1].trim();
+  if (city.split(/\s+/).length > 5) return '';    // too many words — probably a sentence
+  if (CITY_GARBAGE_WORDS.test(city)) return '';   // contains company/label noise word
+  // Normalize to "Title Case City, ST"
+  const cleanCity = city.replace(/\b\w/g, ch => ch.toUpperCase());
+  return `${cleanCity}, ${state}`;
+}
+
+function extractRoute(text) {
+  // Try direct "City, ST [sep] City, ST" match — broadest pattern, then clean results
+  const CS = '([A-Z][A-Za-z .\'\\-]+,\\s*[A-Z]{2})';
+  const SEP = '\\s*(?:→|->|-->|\\bto\\b)\\s*';
+  const direct = text.match(new RegExp(CS + SEP + CS, 'i'));
+  if (direct?.[1] && direct?.[2]) {
+    const pickup = cleanRouteCity(direct[1]);
+    const delivery = cleanRouteCity(direct[2]);
+    if (pickup && delivery) return { route: `${pickup} → ${delivery}`, pickup, delivery };
+    if (pickup) return { route: pickup, pickup, delivery: '' };
+  }
+  // Keyword fallback: look near "pickup", "origin", "delivery", etc.
+  const pickup = cleanRouteCity(extractKeywordLocation(text, 'pickup|origin'));
+  const delivery = cleanRouteCity(extractKeywordLocation(text, 'delivery|destination|consignee'));
   if (pickup || delivery) {
     return {
-      route: pickup && delivery ? `${pickup}→${delivery}` : pickup || delivery,
+      route: pickup && delivery ? `${pickup} → ${delivery}` : pickup || delivery,
       pickup,
       delivery
     };

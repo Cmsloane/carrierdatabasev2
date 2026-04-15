@@ -1073,20 +1073,67 @@ function selectCarrier(id){
   // ── Sources & Audit ───────────────────────────────────────────────────────
   const srcEl=document.getElementById('p-sources');
   const srcSec=document.getElementById('p-sources-section');
-  const sourceIcons={gmail:'✉',fmcsa:'✓',pod:'📄',tracking:'📍'};
-  const sourceLabels={gmail:'Gmail',fmcsa:'FMCSA',pod:'POD',tracking:'Tracking'};
-  const srcs=c.sources||[{type:'gmail',label:'Gmail · Load history'}
-];
   srcSec.style.display='block';
-  srcEl.innerHTML=srcs.map(function(s){
+
+  // Build audit HTML
+  var auditHtml='';
+
+  // 1. Data sources (sources[] array)
+  var srcs=c.sources||[{type:'gmail',label:'Gmail · Rate confirmations'}];
+  var sourceIcons={gmail:'✉',fmcsa:'✓',pod:'📄',tracking:'📍'};
+  auditHtml+=srcs.map(function(s){
     return '<div class="source-item">'
-      +'<div class="source-icon '+s.type+'">'+(sourceIcons[s.type]||'·')+'</div>'
+      +'<div class="source-icon '+(s.type||'gmail')+'">'+(sourceIcons[s.type||'gmail']||'·')+'</div>'
       +'<div style="flex:1">'
-        +'<div style="font-size:12px;color:#c8cdd6">'+s.label+'</div>'
+        +'<div style="font-size:12px;color:#c8cdd6">'+(s.label||s.type||'Unknown')+'</div>'
         +(s.date?'<div style="font-size:11px;color:#4a5a6a">'+s.date+'</div>':'')
       +'</div>'
       +'</div>';
   }).join('');
+
+  // 2. Gmail sync metadata (subjects, emails, stats)
+  var gs=c.gmailSync||{};
+  if(gs.recentSubjects&&gs.recentSubjects.length){
+    auditHtml+='<div style="margin-top:10px;font-size:11px;font-weight:700;color:#4a6a8a;text-transform:uppercase;letter-spacing:0.7px;padding-bottom:4px;border-bottom:1px solid rgba(255,255,255,0.05)">Recent Email Threads</div>';
+    auditHtml+=gs.recentSubjects.map(function(subj){
+      return '<div style="display:flex;align-items:flex-start;gap:6px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03)">'
+        +'<span style="color:#4a6a8a;font-size:13px;margin-top:1px">✉</span>'
+        +'<span style="font-size:11px;color:#8a9aaa;line-height:1.4">'+subj+'</span>'
+        +'</div>';
+    }).join('');
+  }
+
+  // 3. Sync stats row
+  var statsLine=[];
+  if(gs.rateConfirmationCount>0)statsLine.push(gs.rateConfirmationCount+' RC'+(gs.rateConfirmationCount>1?'s':''));
+  if(gs.messageCount>0)statsLine.push(gs.messageCount+' msg'+(gs.messageCount>1?'s':''));
+  if(gs.latestMessageAt)statsLine.push('last: '+gs.latestMessageAt.slice(0,10));
+  if(gs.syncedAt)statsLine.push('synced: '+gs.syncedAt.slice(0,10));
+  if(statsLine.length){
+    auditHtml+='<div style="margin-top:8px;font-size:11px;color:#4a5a6a;font-family:\'DM Mono\',monospace">'+statsLine.join(' · ')+'</div>';
+  }
+
+  // 4. Matched emails (carrier contact addresses seen in Gmail)
+  if(gs.matchedEmails&&gs.matchedEmails.length){
+    auditHtml+='<div style="margin-top:8px;font-size:11px;color:#4a5a6a">Emails seen: '
+      +gs.matchedEmails.slice(0,5).map(function(e){return'<span style="color:#7a9aaa">'+e+'</span>';}).join(', ')
+      +'</div>';
+  }
+
+  // 5. Raw lane field for audit (shows what's stored vs what's displayed)
+  if(c.preferredLanes){
+    var cleanDisplay=laneInfo(c.preferredLanes).recent;
+    var rawLane=c.preferredLanes;
+    var isDirty=cleanDisplay!==rawLane&&rawLane.length>cleanDisplay.length+5;
+    if(isDirty){
+      auditHtml+='<div style="margin-top:8px;padding:6px 8px;background:rgba(180,130,30,0.08);border:1px solid rgba(180,130,30,0.2);border-radius:4px">'
+        +'<div style="font-size:10px;font-weight:700;color:#c09a40;letter-spacing:0.5px;margin-bottom:3px">⚠ RAW LANE DATA (uncleaned)</div>'
+        +'<div style="font-size:11px;color:#8a7a5a;font-family:\'DM Mono\',monospace;word-break:break-all">'+rawLane.slice(0,200)+'</div>'
+        +'</div>';
+    }
+  }
+
+  srcEl.innerHTML=auditHtml||'<div style="font-size:12px;color:#4a5a6a">No source data recorded.</div>';
 
   // -- Matched Loads --
   var matchSec=document.getElementById('p-matched-section');
