@@ -9,7 +9,8 @@ import {
   syncCarriersFromGmail,
   syncNewCarriersFromBookNow,
   syncCarrierOutreachFromGmail,
-  syncNewCarriersFromSentMail
+  syncNewCarriersFromSentMail,
+  syncRCThreadProgress
 } from './gmail-sync-lib.js';
 
 const functionFilename = fileURLToPath(import.meta.url);
@@ -245,7 +246,8 @@ export default async (request) => {
     return noContent();
   }
 
-  const pathname = parseRoute(new URL(request.url).pathname);
+  const reqUrl = new URL(request.url);
+  const pathname = parseRoute(reqUrl.pathname);
   const storeName = getStoreName(request);
   const store = getStore({ name: storeName });
   const user = currentUser(request);
@@ -416,6 +418,18 @@ export default async (request) => {
         });
       }
 
+      // Read sync window from query string OR JSON body. Defaults preserve historic behavior.
+      let bodyOpts = {};
+      try { bodyOpts = await parseJsonBody(request); } catch {}
+      const daysBack = Math.max(1, Math.min(
+        Number(reqUrl.searchParams.get('days') || bodyOpts.days || bodyOpts.daysBack || 0) || 0,
+        730
+      ));
+      const syncOpts = daysBack ? {
+        daysBack,
+        maxResults: Number(reqUrl.searchParams.get('max') || bodyOpts.maxResults || 0) || undefined
+      } : {};
+
       const current = await getState(store);
       let carriers = clone(current.carriers || []);
 
@@ -449,9 +463,9 @@ export default async (request) => {
           //   1b: Outreach tracker → updates lastContactedDate on existing carriers
           //   1c: Sent mail scan → new carriers found in load-related sent emails
           const [bookNow, outreachResult, sentMailResult] = await Promise.all([
-            syncNewCarriersFromBookNow(carriers, { credentials: creds }),
-            syncCarrierOutreachFromGmail(carriers, { credentials: creds }).catch(err => ({ carriers, updated: 0, scanned: 0, _err: err.message })),
-            syncNewCarriersFromSentMail(carriers, { credentials: creds }).catch(err => ({ newCarriers: [], scanned: 0, _err: err.message }))
+            syncNewCarriersFromBookNow(carriers, { credentials: creds, ...syncOpts }),
+            syncCarrierOutreachFromGmail(carriers, { credentials: creds, ...syncOpts }).catch(err => ({ carriers, updated: 0, scanned: 0, _err: err.message })),
+            syncNewCarriersFromSentMail(carriers, { credentials: creds, ...syncOpts }).catch(err => ({ newCarriers: [], scanned: 0, _err: err.message }))
           ]);
 
           // Merge: apply outreach updates first, then append new carriers from all sources
@@ -483,8 +497,8 @@ export default async (request) => {
       if (primaryEmail && !coveredEmails.has(primaryEmail)) {
         try {
           const [bookNow, sentMailResult] = await Promise.all([
-            syncNewCarriersFromBookNow(carriers),
-            syncNewCarriersFromSentMail(carriers).catch(() => ({ newCarriers: [], scanned: 0 }))
+            syncNewCarriersFromBookNow(carriers, syncOpts),
+            syncNewCarriersFromSentMail(carriers, syncOpts).catch(() => ({ newCarriers: [], scanned: 0 }))
           ]);
           const allNew = [...bookNow.newCarriers, ...(sentMailResult.newCarriers || [])];
           carriers = [...carriers, ...allNew];
@@ -538,7 +552,7 @@ export default async (request) => {
         const rcCreds = workingUser
           ? { clientId: GOOGLE_CLIENT_ID, clientSecret: GOOGLE_CLIENT_SECRET, refreshToken: workingUser.refreshToken, userEmail: workingUser.email }
           : null; // null → gmailConfig falls back to GMAIL_REFRESH_TOKEN env var
-        rcResult = await syncCarriersFromGmail(carriers, rcCreds);
+        rcResult = await syncCarriersFromGmail(carriers, rcCreds, syncOpts);
         carriers = rcResult.carriers || carriers;
         // Track any new carriers discovered from unmatched inbox RC events
         if (rcResult.newCarriers?.length) {
@@ -550,13 +564,44 @@ export default async (request) => {
       }
       totalUpdated = rcResult.gmailSync?.matchedCarriers || 0;
 
+      // Step 3: RC Thread Progress — reads full "Rate Confirmation for Load #X" threads
+      // and parses carrier replies for pickup, ETA, delay, issue, and delivery signals.
+      // Updates loadHistory.threadMessages[] so dispatchers see what carriers said.
+      let rcThreadResult = { threadsScanned: 0, updatedCarriers: 0 };
+      try {
+        const rcThreadCreds = workingUser
+          ? { clientId: GOOGLE_CLIENT_ID, clientSecret: GOOGLE_CLIENT_SECRET, refreshToken: workingUser.refreshToken, userEmail: workingUser.email }
+          : null;
+        rcThreadResult = await syncRCThreadProgress(carriers, { credentials: rcThreadCreds, ...syncOpts });
+        carriers = rcThreadResult.carriers || carriers;
+      } catch (rtErr) {
+        // Non-fatal
+      }
+
       const synced = await writeState(store, { ...current, carriers, carriersUpdatedAt: nowIso() }, 'gmail_sync');
+
+      // Auto-snapshot AFTER successful sync — Gmail-independent disaster recovery.
+      // Idempotent per day: writes to snapshots/YYYY-MM-DD (overwrites within same day).
+      let snapshotKey = '';
+      try {
+        const dateKey = new Date().toISOString().slice(0, 10);
+        snapshotKey = `snapshots/${dateKey}`;
+        await store.setJSON(snapshotKey, {
+          snapshotAt: nowIso(),
+          revision: synced.meta?.revision,
+          carrierCount: (synced.carriers || []).length,
+          loadCount: ((synced.loadsData?.loads) || synced.loadsData || []).length,
+          source: 'gmail_sync_auto',
+          state: synced
+        });
+      } catch (snapErr) { /* non-fatal */ }
 
       // Identify any partial auth failures
       const partialAuthFail = authFailedAccounts.length > 0 && !allAuthFailed;
 
       const syncResponse = {
         ok: true, configured: true,
+        windowDays: daysBack || 'default',
         newCarriers: totalNewCarriers.length,
         newCarrierNames: totalNewCarriers.map(c => c.company),
         skipped: totalSkipped,
@@ -569,7 +614,10 @@ export default async (request) => {
         userResults: userSyncResults,
         revision: synced.meta.revision,
         carriersUpdatedAt: synced.carriersUpdatedAt,
-        nothingNew: totalNewCarriers.length === 0 && totalUpdated === 0 && totalOutreachUpdated === 0
+        rcThreadsScanned: rcThreadResult.threadsScanned,
+        rcThreadCarriersUpdated: rcThreadResult.updatedCarriers,
+        snapshotKey,
+        nothingNew: totalNewCarriers.length === 0 && totalUpdated === 0 && totalOutreachUpdated === 0 && rcThreadResult.updatedCarriers === 0
       };
 
       const userRows = userSyncResults.map(u =>
@@ -591,6 +639,81 @@ export default async (request) => {
       `);
 
       return json(200, syncResponse);
+    }
+
+    // ── Backups: snapshot, list, get, export ──────────────────────────────────
+    // Disaster recovery — independent of Gmail. Live state always lives in
+    // Netlify Blobs; these endpoints add daily snapshots + manual JSON export.
+    if (request.method === 'POST' && pathname === '/backup/snapshot') {
+      const state = await getState(store);
+      const dateKey = new Date().toISOString().slice(0, 10);
+      const key = `snapshots/${dateKey}`;
+      await store.setJSON(key, {
+        snapshotAt: nowIso(),
+        revision: state.meta?.revision,
+        carrierCount: (state.carriers || []).length,
+        loadCount: ((state.loadsData?.loads) || state.loadsData || []).length,
+        source: 'manual',
+        state
+      });
+      return json(200, { ok: true, key, revision: state.meta?.revision, snapshotAt: nowIso() });
+    }
+
+    if (request.method === 'GET' && pathname === '/backup/list') {
+      try {
+        const { blobs } = await store.list({ prefix: 'snapshots/' });
+        const items = await Promise.all((blobs || []).map(async b => {
+          try {
+            const meta = await store.get(b.key, { type: 'json' });
+            return {
+              key: b.key,
+              date: b.key.replace(/^snapshots\//, ''),
+              snapshotAt: meta?.snapshotAt,
+              revision: meta?.revision,
+              carrierCount: meta?.carrierCount,
+              loadCount: meta?.loadCount,
+              source: meta?.source
+            };
+          } catch { return { key: b.key, error: true }; }
+        }));
+        items.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        return json(200, { ok: true, count: items.length, snapshots: items });
+      } catch (err) {
+        return json(500, { ok: false, error: err.message });
+      }
+    }
+
+    if (request.method === 'GET' && pathname.startsWith('/backup/get/')) {
+      const dateKey = pathname.slice('/backup/get/'.length);
+      const key = `snapshots/${dateKey}`;
+      try {
+        const snap = await store.get(key, { type: 'json' });
+        if (!snap) return json(404, { ok: false, error: 'Snapshot not found' });
+        return json(200, snap);
+      } catch (err) {
+        return json(500, { ok: false, error: err.message });
+      }
+    }
+
+    if (request.method === 'GET' && pathname === '/backup/export') {
+      const state = await getState(store);
+      const filename = `carrierdb-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      return new Response(JSON.stringify({
+        exportedAt: nowIso(),
+        revision: state.meta?.revision,
+        carrierCount: (state.carriers || []).length,
+        loadCount: ((state.loadsData?.loads) || state.loadsData || []).length,
+        carriers: state.carriers || [],
+        loadsData: state.loadsData || { loads: [] },
+        meta: state.meta || {}
+      }, null, 2), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Disposition': `attachment; filename="${filename}"`,
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
     }
 
     if (request.method === 'GET' && pathname === '/zapier/status') {

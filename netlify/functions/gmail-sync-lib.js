@@ -781,7 +781,7 @@ function createCarriersFromUnmatched(unmatchedEvents, existingCarriers, ignoreDo
   return newCarriers;
 }
 
-export async function syncCarriersFromGmail(carriers, credentials = null) {
+export async function syncCarriersFromGmail(carriers, credentials = null, options = {}) {
   const config = gmailConfig(credentials || {});
   if (!config.clientId || !config.clientSecret || !config.refreshToken) {
     throw new Error('Gmail sync is not configured. Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN.');
@@ -790,13 +790,19 @@ export async function syncCarriersFromGmail(carriers, credentials = null) {
   const accessToken = await fetchAccessToken(config);
   const events = [];
 
-  // Broader queries — 90d window, extra terms to catch more carrier emails.
-  const INBOX_QUERY = 'newer_than:90d ("rate confirmation" OR "rate con" OR "carrier confirmation" OR "load tender" OR "booking confirmation" OR "dispatch confirmation" OR "load confirmation" OR "carrier agreement") -in:trash -in:spam';
-  const SENT_QUERY  = 'in:sent newer_than:90d ("rate confirmation" OR "rate con" OR "booking confirmation" OR "carrier" OR "load confirmation" OR "dispatch confirmation") -in:trash';
+  // Caller-controlled time window + max results (defaults preserve previous behavior).
+  const daysBack = Math.max(1, Math.min(Number(options.daysBack || 90), 730));
+  const inboxMax = Math.max(10, Math.min(Number(options.inboxMax  || 300), 500));
+  const sentMax  = Math.max(10, Math.min(Number(options.sentMax   || 250), 500));
+
+  // Broader subject phrasing — catches the long tail of carrier confirmations
+  // we previously missed (dispatch sheet, freight conf, carrier packet, trip sheet).
+  const INBOX_QUERY = `newer_than:${daysBack}d ("rate confirmation" OR "rate con" OR "carrier confirmation" OR "load tender" OR "booking confirmation" OR "dispatch confirmation" OR "load confirmation" OR "carrier agreement" OR "dispatch sheet" OR "carrier packet" OR "freight confirmation" OR "trip sheet" OR "load assignment") -in:trash -in:spam`;
+  const SENT_QUERY  = `in:sent newer_than:${daysBack}d ("rate confirmation" OR "rate con" OR "booking confirmation" OR "carrier" OR "load confirmation" OR "dispatch confirmation" OR "trip sheet" OR "carrier packet") -in:trash`;
 
   const [inboxList, sentList] = await Promise.all([
-    gmailRequest('messages', accessToken, { q: INBOX_QUERY, maxResults: 100 }),
-    gmailRequest('messages', accessToken, { q: SENT_QUERY,  maxResults: 80 })
+    gmailRequest('messages', accessToken, { q: INBOX_QUERY, maxResults: inboxMax }),
+    gmailRequest('messages', accessToken, { q: SENT_QUERY,  maxResults: sentMax  })
   ]);
 
   // Deduplicate by message ID
@@ -808,7 +814,7 @@ export async function syncCarriersFromGmail(carriers, credentials = null) {
 
   // Phase 1: metadata-only fetch to pre-filter by subject / snippet.
   // Broader RC_RE catches more carrier emails including load confirmation variants.
-  const RC_RE = /rate\s*conf(?:irmation)?|carrier\s*conf|load\s*tender|dispatch\s*conf|booking\s*conf|load\s*confirm|carrier\s*agree|load\s*#\s*\d{4,}|book\s*now|freight\s*conf/i;
+  const RC_RE = /rate\s*conf(?:irmation)?|carrier\s*conf|load\s*tender|dispatch\s*conf|booking\s*conf|load\s*confirm|carrier\s*agree|load\s*#\s*\d{4,}|book\s*now|freight\s*conf|dispatch\s*sheet|carrier\s*packet|trip\s*sheet|load\s*assign|setup\s*packet/i;
   const META_BATCH = 15;
   const candidateIds = [];
 
@@ -934,14 +940,15 @@ export async function syncNewCarriersFromBookNow(carriers, options = {}) {
   }
 
   const accessToken = await fetchAccessToken(config);
-  const daysBack = options.daysBack || 30;
+  const daysBack = Math.max(1, Math.min(Number(options.daysBack || 90), 730));
+  const maxResults = Math.max(10, Math.min(Number(options.maxResults || 250), 500));
   // to:me + exact subject phrase targets only emails sent directly to the authenticated
   // user — not forwarded copies in other labels. Emails Conrad books are addressed to him
   // directly from noreply@circledelivers.com; forwarded FW Carrier Sales copies have
   // "FW:" in the subject and won't match "Book Now Dispatch for Load" exactly.
   const query = `from:noreply@circledelivers.com "Book Now Dispatch for Load" to:me newer_than:${daysBack}d`;
 
-  const messageList = await gmailRequest('messages', accessToken, { q: query, maxResults: 50 });
+  const messageList = await gmailRequest('messages', accessToken, { q: query, maxResults });
   const messages = Array.isArray(messageList?.messages) ? messageList.messages : [];
 
   // Build lookup sets for existing carriers
@@ -1152,11 +1159,12 @@ export async function syncNewCarriersFromSentMail(carriers, options = {}) {
     throw new Error('Gmail OAuth not configured.');
   }
   const accessToken = await fetchAccessToken(config);
-  const daysBack = options.daysBack || 90;
+  const daysBack = Math.max(1, Math.min(Number(options.daysBack || 90), 730));
+  const maxResults = Math.max(10, Math.min(Number(options.maxResults || 250), 500));
 
-  // Narrow query to load-related sent mail only, small maxResults to stay within budget.
-  const SENT_QUERY = `in:sent newer_than:${daysBack}d ("load" OR "carrier" OR "booking" OR "dispatch") -in:trash -in:spam`;
-  const sentList = await gmailRequest('messages', accessToken, { q: SENT_QUERY, maxResults: 60 });
+  // Narrow query to load-related sent mail only.
+  const SENT_QUERY = `in:sent newer_than:${daysBack}d ("load" OR "carrier" OR "booking" OR "dispatch" OR "rate" OR "trip sheet" OR "freight") -in:trash -in:spam`;
+  const sentList = await gmailRequest('messages', accessToken, { q: SENT_QUERY, maxResults });
   const msgIds = (sentList?.messages || []).map(m => m.id).filter(Boolean);
   if (!msgIds.length) return { newCarriers: [], scanned: 0 };
 
@@ -1283,6 +1291,222 @@ export async function syncNewCarriersFromSentMail(carriers, options = {}) {
   return { newCarriers, scanned: msgIds.length };
 }
 
+// ── RC Thread Progress Tracker ───────────────────────────────────────────────
+// Reads full "Circle Logistics, Inc - Rate Confirmation for Load #XXXXX" email
+// threads and parses carrier REPLIES for load-status signals. Updates each
+// carrier's loadHistory[].threadMessages[] so dispatchers can see what the
+// carrier said at each stage (pickup confirmed, ETA, delay, issue, delivery).
+//
+// Signal types (checked in order of severity):
+//   issue             — breakdown, flat tire, accident, wrong address, refused delivery
+//   delivery_confirmed — delivered, POD signed, dropped off
+//   pickup_confirmed  — picked up, on board, just loaded, left shipper
+//   delay             — running late, delayed, behind schedule
+//   eta_update        — ETA X:XX, will arrive at, en route
+//   check_in          — checking in, status update, heads up
+//   general           — any other carrier reply
+//
+// Side effects:
+//   - loadHistory item gains: threadId, threadMessages[], loadStatus
+//   - carrier.lastContactedDate updated from most recent reply date
+//   - carrier.contactLog gets an auto entry for each new date
+//   - carrier.issueFlag set to true if issue signal detected
+
+const THREAD_SIGNALS = {
+  issue:              /\b(broke?\s*down|breakdown|mechanical\s*(issue|problem|failure)|flat\s*tire?|accident\s*(involved|happened)|lost\s*(load|truck)?|wrong\s*(address|location|dock)|can.?t\s*find|refused?\s*(delivery|to\s*unload)|truck\s*(won.?t\s*start|in\s*the\s*shop)|won.?t\s*deliver)\b/i,
+  delivery_confirmed: /\b(delivered|delivery\s*complete|dropped?\s*off|unloaded|consignee\s*(signed|received)|POD|proof\s*of\s*delivery|bill\s*of\s*lading\s*signed|signed\s*for|left\s*at\s*(the\s*)?(dock|receiver|consignee))\b/i,
+  pickup_confirmed:   /\b(picked\s*up|on\s*board|just\s*loaded|left\s*the\s*shipper|departed?\s*(from)?\s*(shipper|pickup|facility)?|driver\s*(is\s*)?loaded|we\s*(are|have)\s*loaded|heading\s*to\s*(delivery|consignee|destination))\b/i,
+  delay:              /\b(running\s*(late|behind)|delayed?|behind\s*(schedule|eta|time)|will\s*be\s*late|can.?t\s*make\s*(it|the|appointment)?|won.?t\s*make|stuck\s*in\s*traffic|hour[s]?\s*(behind|late|delay)|going\s*to\s*be\s*late)\b/i,
+  eta_update:         /\b(eta\s*[\d:]+|estimated\s*(arrival|delivery)|will\s*(arrive|deliver|be\s*there)\s*(at|by|around)|arriving\s*(at|by)|on\s*(my|our)\s*way\s*to\s*(delivery|consignee)?|en\s*route|should\s*be\s*there)\b/i,
+  check_in:           /\b(checking\s*in|check\s*in|just\s*(calling|checking)|following\s*up|status\s*update|heads?\s*up|quick\s*update|just\s*wanted\s*to\s*let\s*you\s*know)\b/i,
+};
+
+function classifyCarrierMessage(text) {
+  const t = String(text || '');
+  for (const type of ['issue', 'delivery_confirmed', 'pickup_confirmed', 'delay', 'eta_update', 'check_in']) {
+    if (THREAD_SIGNALS[type].test(t)) return type;
+  }
+  return 'general';
+}
+
+function extractEtaMention(text) {
+  const m = String(text || '').match(/\b(?:eta|arrive[sd]?\s*(?:at|by|around)?|be\s*there\s*(?:by|at)?)\s*([\d]{1,2}:?[\d]{0,2}\s*(?:am|pm)?)/i);
+  return m ? m[1].trim().slice(0, 20) : '';
+}
+
+/**
+ * syncRCThreadProgress — fetches RC email threads and extracts carrier replies.
+ * Wired into the Gmail sync as an optional step per connected user.
+ */
+export async function syncRCThreadProgress(carriers, options = {}) {
+  const config = gmailConfig(options.credentials || {});
+  if (!config.clientId || !config.clientSecret || !config.refreshToken) {
+    return { carriers, threadsScanned: 0, updatedCarriers: 0 };
+  }
+
+  let accessToken;
+  try { accessToken = await fetchAccessToken(config); }
+  catch { return { carriers, threadsScanned: 0, updatedCarriers: 0 }; }
+
+  const OUR_DOMAINS = config.ignoreDomains; // ['circledelivers.com', 'circlelogistics.com']
+  const emailIndex = buildCarrierEmailIndex(carriers);
+
+  const daysBack   = Math.max(1, Math.min(Number(options.daysBack   || 60), 730));
+  const maxResults = Math.max(10, Math.min(Number(options.maxResults || 250), 500));
+  const threadCap  = Math.max(5,  Math.min(Number(options.threadCap  || 80), 200));
+
+  // Step 1: Find RC messages by subject — metadata only (fast)
+  const msgList = await gmailRequest('messages', accessToken, {
+    q: `subject:"Rate Confirmation for Load" newer_than:${daysBack}d -in:trash -in:spam`,
+    maxResults
+  }).catch(() => ({ messages: [] }));
+
+  const threadIdSet = new Set((msgList?.messages || []).map(m => m.threadId).filter(Boolean));
+  const threadIds = [...threadIdSet].slice(0, threadCap);
+  if (!threadIds.length) return { carriers, threadsScanned: 0, updatedCarriers: 0 };
+
+  // Clone carriers for safe mutation
+  const nextCarriers = carriers.map(c => ({
+    ...c,
+    loadHistory: (c.loadHistory || []).map(h => ({ ...h }))
+  }));
+  let updatedCount = 0;
+
+  // Step 2: Fetch and process each thread
+  for (const threadId of threadIds) {
+    let thread;
+    try {
+      thread = await gmailRequest(`threads/${encodeURIComponent(threadId)}`, accessToken, { format: 'full' });
+    } catch { continue; }
+
+    const msgs = thread?.messages || [];
+    if (msgs.length < 2) continue; // nothing to track without a reply
+
+    // Identify the original RC message
+    const rcMsg = msgs.find(m => /Rate\s+Confirmation\s+for\s+Load/i.test(safeHeaderMap(m).subject || ''));
+    if (!rcMsg) continue;
+
+    const rcH = safeHeaderMap(rcMsg);
+    const loadIdMatch = (rcH.subject || '').match(/Load\s+#?(\d{5,})/i);
+    const loadId = loadIdMatch?.[1] || '';
+
+    // Carrier = recipient of the RC who is NOT from our domain
+    const recipientEmails = [
+      ...parseEmails(rcH.to || ''),
+      ...parseEmails(rcH.cc || '')
+    ].filter(e => !OUR_DOMAINS.includes((e.split('@')[1] || '').toLowerCase()));
+
+    let carrierIdx = -1;
+    for (const email of recipientEmails) {
+      const idxList = emailIndex.get(email) || [];
+      if (idxList.length) { carrierIdx = idxList[0]; break; }
+    }
+    if (carrierIdx < 0) continue;
+
+    // Carrier reply messages (NOT from our domain)
+    const carrierReplies = msgs.filter(m => {
+      const fe = (parseEmails(safeHeaderMap(m).from || '')[0] || '');
+      return fe && !OUR_DOMAINS.includes((fe.split('@')[1] || '').toLowerCase());
+    });
+    if (!carrierReplies.length) continue;
+
+    // Parse each carrier reply
+    const parsedMessages = carrierReplies.map(m => {
+      const headers = safeHeaderMap(m);
+      const body = extractMessageText(m);
+      const snippet = (m.snippet || '').slice(0, 200);
+      const raw = (body || snippet).slice(0, 1200);
+
+      // Strip quoted / forwarded reply blocks before classifying
+      const stripped = raw
+        .replace(/^(>.*|On\s.{0,100}wrote:|From:\s*.+)$/gim, '')
+        .replace(/_{5,}[\s\S]{0,600}$/, '')
+        .replace(/\s{3,}/g, '\n')
+        .trim();
+
+      const type = classifyCarrierMessage(stripped);
+      const eta  = (type === 'eta_update' || type === 'delay') ? extractEtaMention(stripped) : '';
+      const ts   = m.internalDate ? new Date(parseInt(m.internalDate)) : null;
+      const date = (ts && !isNaN(ts)) ? ts.toISOString().slice(0, 10)
+                 : (headers.date ? new Date(headers.date).toISOString().slice(0, 10) : '');
+
+      return {
+        date,
+        from: parseEmails(headers.from || '')[0] || (headers.from || '').slice(0, 60),
+        type,
+        ...(eta ? { eta } : {}),
+        body: (stripped || snippet).slice(0, 350)
+      };
+    }).filter(m => m.date);
+
+    if (!parsedMessages.length) continue;
+
+    const c = nextCarriers[carrierIdx];
+    const types = parsedMessages.map(m => m.type);
+    const hasIssue    = types.includes('issue');
+    const hasDelivery = types.includes('delivery_confirmed');
+    const hasPickup   = types.includes('pickup_confirmed');
+
+    const loadStatus = hasIssue    ? 'Issue Reported'
+      : hasDelivery ? 'Delivered'
+      : hasPickup   ? 'In Transit'
+      : 'Booked';
+
+    // Update or insert load history entry
+    const histIdx = (c.loadHistory || []).findIndex(h =>
+      loadId && String(h.load_id || h.load || '') === loadId
+    );
+    if (histIdx >= 0) {
+      c.loadHistory[histIdx] = {
+        ...c.loadHistory[histIdx],
+        threadId,
+        threadMessages: parsedMessages,
+        loadStatus,
+        ...(hasIssue && !String(c.loadHistory[histIdx].status || '').includes('Issue') ? { status: 'Issue Reported' } : {}),
+        ...(hasDelivery ? { status: 'Completed' } : {})
+      };
+    } else if (loadId) {
+      const rcBody = extractMessageText(rcMsg);
+      const rcRoute = extractRoute(rcBody || '');
+      const rcRate  = extractMoney(rcBody || '');
+      if (!c.loadHistory) c.loadHistory = [];
+      c.loadHistory.push({
+        load_id: loadId,
+        route: rcRoute.route || '',
+        status: loadStatus,
+        ...(rcRate ? { rate: rcRate } : {}),
+        source: 'gmail-rc-thread',
+        threadId,
+        threadMessages: parsedMessages,
+        loadStatus,
+        synced_at: nowIso()
+      });
+    }
+
+    // Update lastContactedDate + contactLog from most recent carrier reply
+    const mostRecentDate = parsedMessages.map(m => m.date).filter(Boolean).sort().pop() || '';
+    if (mostRecentDate && (!c.lastContactedDate || mostRecentDate > c.lastContactedDate)) {
+      c.lastContactedDate = mostRecentDate;
+      if (!c.contactLog) c.contactLog = [];
+      const alreadyLogged = c.contactLog.some(l => l.date === mostRecentDate && l.auto
+        && String(l.notes || '').includes(loadId));
+      if (!alreadyLogged) {
+        c.contactLog.push({
+          date: mostRecentDate,
+          type: 'Email',
+          notes: `RC thread · Load #${loadId} · ${parsedMessages[parsedMessages.length - 1].type.replace(/_/g, ' ')}`,
+          auto: true
+        });
+      }
+    }
+
+    if (hasIssue && !c.issueFlag) c.issueFlag = true;
+    updatedCount++;
+  }
+
+  return { carriers: nextCarriers, threadsScanned: threadIds.length, updatedCarriers: updatedCount };
+}
+
 // ── Carrier Outreach Tracker ──────────────────────────────────────────────────
 // Scans the authenticated user's sent mail and inbox for emails to/from carriers
 // already in the database. Updates lastContactedDate and contactLog automatically
@@ -1300,7 +1524,9 @@ export async function syncCarrierOutreachFromGmail(carriers, options = {}) {
     throw new Error('Gmail OAuth not configured.');
   }
   const accessToken = await fetchAccessToken(config);
-  const daysBack = options.daysBack || 90;
+  const daysBack = Math.max(1, Math.min(Number(options.daysBack || 90), 730));
+  const sentMax  = Math.max(10, Math.min(Number(options.sentMax  || 250), 500));
+  const inboxMax = Math.max(10, Math.min(Number(options.inboxMax || 200), 500));
 
   // Build email → carrier index (normalized email → index in carriers array)
   const emailIndex = new Map();
@@ -1355,8 +1581,8 @@ export async function syncCarrierOutreachFromGmail(carriers, options = {}) {
 
   // List sent mail and inbox messages (metadata-only — much faster than full format)
   const [sentList, inboxList] = await Promise.all([
-    gmailRequest('messages', accessToken, { q: `in:sent newer_than:${daysBack}d -in:trash`, maxResults: 100 }),
-    gmailRequest('messages', accessToken, { q: `in:inbox newer_than:${daysBack}d -in:trash`, maxResults: 75 })
+    gmailRequest('messages', accessToken, { q: `in:sent newer_than:${daysBack}d -in:trash`, maxResults: sentMax }),
+    gmailRequest('messages', accessToken, { q: `in:inbox newer_than:${daysBack}d -in:trash`, maxResults: inboxMax })
   ]);
   const sentIds   = (sentList?.messages  || []).map(m => m.id).filter(Boolean);
   const inboxIds  = (inboxList?.messages || []).map(m => m.id).filter(Boolean);
