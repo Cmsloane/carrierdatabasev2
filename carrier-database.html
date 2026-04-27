@@ -1730,6 +1730,8 @@ function handleLoadsUpload(event){
 }
 
 function purgePastLoads(loads){
+  // Retained for backward-compat callers, but no longer used by applyParsedLoads.
+  // Loads are now kept indefinitely so the database is the historical record.
   var today=new Date(); today.setHours(0,0,0,0);
   return loads.filter(function(l){
     var pd=l.pickup_date||'';
@@ -1742,29 +1744,54 @@ function purgePastLoads(loads){
 }
 
 function applyParsedLoads(parsed, filename){
-  var active=purgePastLoads(parsed);
-  var removed=parsed.length-active.length;
-
-  // Archive previous loads before replacing them
+  // MERGE strategy — never delete prior loads.
+  // 1. Existing loads stay in place
+  // 2. Loads in the new file with matching load_id update existing entries (latest wins)
+  // 3. New load_ids get appended, tagged with first-seen source + timestamp
   var prevLoads=(loadsData&&loadsData.loads)||[];
   var prevArchive=(loadsData&&loadsData.archive)||[];
-  var prevBatch=loadsData&&loadsData.filters_applied||'';
-  var prevSyncedAt=loadsData&&loadsData.synced_at||'';
-  // Tag each old load with its source batch then merge into archive
-  var archivedLoads=prevLoads.map(function(l){
-    return Object.assign({},l,{_archived:true,_archivedFrom:prevBatch,_archivedAt:prevSyncedAt});
-  });
-  var newArchive=prevArchive.concat(archivedLoads);
-
   var now=new Date();
   var syncedAt=now.toISOString().replace(/\.\d+Z$/,'Z');
+
+  // Index existing by load_id for O(1) lookup
+  var byId={};
+  prevLoads.forEach(function(l,i){if(l.load_id)byId[String(l.load_id)]=i;});
+
+  var newCount=0,updatedCount=0;
+  var mergedLoads=prevLoads.slice();
+  parsed.forEach(function(np){
+    var key=String(np.load_id||'');
+    if(!key){
+      // No load_id — append blindly so we don't lose data
+      mergedLoads.push(Object.assign({},np,{_firstSeen:syncedAt,_sourceFile:filename}));
+      newCount++;
+      return;
+    }
+    if(byId.hasOwnProperty(key)){
+      // Update existing — preserve _firstSeen, refresh other fields
+      var idx=byId[key];
+      var prev=mergedLoads[idx]||{};
+      mergedLoads[idx]=Object.assign({},prev,np,{
+        _firstSeen:prev._firstSeen||syncedAt,
+        _lastSeen:syncedAt,
+        _sourceFile:prev._sourceFile||filename,
+        _lastSourceFile:filename
+      });
+      updatedCount++;
+    }else{
+      mergedLoads.push(Object.assign({},np,{_firstSeen:syncedAt,_sourceFile:filename,_lastSeen:syncedAt}));
+      byId[key]=mergedLoads.length-1;
+      newCount++;
+    }
+  });
+
   loadsData = {
     synced_at: syncedAt,
     filters_applied: 'uploaded:' + filename,
-    total_available: parsed.length,
-    loads_captured: active.length,
-    loads: active,
-    archive: newArchive
+    total_available: mergedLoads.length,
+    loads_captured: mergedLoads.length,
+    loads: mergedLoads,
+    archive: prevArchive  // archive preserved as-is (no destructive replacement)
   };
   computeAllMatches();
   updateLoadsStats();
@@ -1773,12 +1800,9 @@ function applyParsedLoads(parsed, filename){
   updateCarriersStats();
   var h2=now.getHours(),m2=now.getMinutes(),ap=h2>=12?'PM':'AM';
   h2=h2%12||12;var ts=h2+':'+(m2<10?'0':'')+m2+' '+ap;
-  var msg='✓ '+active.length+' loads loaded from '+filename.replace(/.*[/\\]/,'');
-  if(removed>0) msg+=' ('+removed+' past pickup removed)';
-  if(archivedLoads.length>0) msg+=' · '+archivedLoads.length+' previous loads archived';
-  msg+=' · '+ts;
+  var msg='✓ '+newCount+' new + '+updatedCount+' updated · '+mergedLoads.length+' total in DB · '+ts;
   showToast(msg);
-  console.log('Loaded '+active.length+' loads from '+filename+(removed?' ('+removed+' expired removed)':'')+(archivedLoads.length?' ('+archivedLoads.length+' archived)':''));
+  console.log('Merged '+parsed.length+' from '+filename+' → '+newCount+' new, '+updatedCount+' updated, '+mergedLoads.length+' total');
 
   // Persist to Netlify Blobs so uploads survive page refreshes
   pushLoadsToNetlify();
