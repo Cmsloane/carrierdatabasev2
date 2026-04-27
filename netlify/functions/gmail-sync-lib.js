@@ -838,10 +838,17 @@ export async function syncCarriersFromGmail(carriers, credentials = null, option
     }
   }
 
-  // Phase 2: full-content fetch for confirmed candidates (configurable cap)
-  for (const msgId of candidateIds.slice(0, fullFetchCap)) {
-    try {
-      const payload = await gmailRequest(`messages/${encodeURIComponent(msgId)}`, accessToken, { format: 'full' });
+  // Phase 2: full-content fetch for confirmed candidates (configurable cap).
+  // Parallel batched — was serial, blew the 10s budget for windows >90d.
+  const phase2Ids = candidateIds.slice(0, fullFetchCap);
+  const FETCH_BATCH = 10;
+  for (let i = 0; i < phase2Ids.length; i += FETCH_BATCH) {
+    const slice = phase2Ids.slice(i, i + FETCH_BATCH);
+    const payloads = await Promise.all(slice.map(msgId =>
+      gmailRequest(`messages/${encodeURIComponent(msgId)}`, accessToken, { format: 'full' }).catch(() => null)
+    ));
+    for (const payload of payloads) {
+      if (!payload) continue;
       const headers = safeHeaderMap(payload);
       const body    = extractMessageText(payload);
       events.push({
@@ -856,7 +863,7 @@ export async function syncCarriersFromGmail(carriers, credentials = null, option
         bodyPlain:   body,
         snippet:     payload?.snippet         || ''
       });
-    } catch (_) { /* skip individual fetch errors */ }
+    }
   }
 
   const rcResult = applyRateConfirmationEvents(carriers, events, {
