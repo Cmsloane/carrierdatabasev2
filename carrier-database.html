@@ -734,6 +734,46 @@ body.show-lanemap #lanemap-wrap{display:block}
     <div class="ins-section-title">Rate Distribution <span class="ins-section-sub">avg rate by lane (top 12)</span></div>
     <div class="ins-bars" id="ins-rates"></div>
   </div>
+
+  <!-- ── Load Data Analytics ── -->
+  <div style="margin:32px 0 14px 0;padding-top:18px;border-top:1px solid rgba(255,255,255,0.08)">
+    <div style="font-size:14px;font-weight:700;color:#e8412a;letter-spacing:0.6px;text-transform:uppercase">Load Data</div>
+    <div style="font-size:11px;color:#5a6a7a;margin-top:3px" id="ins-loads-meta"></div>
+  </div>
+
+  <div class="ins-grid" id="ins-loads-kpis"></div>
+
+  <div class="ins-cols">
+    <div class="ins-card">
+      <div class="ins-section-title">Loads by Equipment <span class="ins-section-sub" id="ins-loads-equip-sub"></span></div>
+      <div class="ins-donut-wrap"><div id="ins-loads-equip-donut"></div><div class="ins-donut-legend" id="ins-loads-equip-legend"></div></div>
+    </div>
+    <div class="ins-card">
+      <div class="ins-section-title">Top Customers <span class="ins-section-sub">by load count</span></div>
+      <div class="ins-list" id="ins-loads-customers"></div>
+    </div>
+  </div>
+
+  <div class="ins-card" style="margin-bottom:18px">
+    <div class="ins-section-title">Top Pickup States <span class="ins-section-sub">by load count</span></div>
+    <div class="ins-bars" id="ins-loads-states"></div>
+  </div>
+
+  <div class="ins-cols">
+    <div class="ins-card">
+      <div class="ins-section-title">Avg Rate by Equipment <span class="ins-section-sub">$ per load</span></div>
+      <div class="ins-bars" id="ins-loads-rate-by-equip"></div>
+    </div>
+    <div class="ins-card">
+      <div class="ins-section-title">Best-Paying Lanes <span class="ins-section-sub">top 10 by $/mile</span></div>
+      <div class="ins-list" id="ins-loads-best-lanes"></div>
+    </div>
+  </div>
+
+  <div class="ins-card" style="margin-bottom:18px">
+    <div class="ins-section-title">Top Lanes by Volume <span class="ins-section-sub" id="ins-loads-lanes-sub"></span></div>
+    <div class="ins-bars" id="ins-loads-lanes"></div>
+  </div>
 </div>
 
 <!-- Lane Map View -->
@@ -2083,6 +2123,177 @@ function renderInsights(){
       +'<div class="ins-bar-val">$'+l.avgRate.toLocaleString()+'</div>'
     +'</div>';
   }).join('')||'<div style="color:#5a6a7a;font-size:12px">No rate data yet — most lane history items don\'t have a rate field.</div>';
+
+  // ═══ LOAD DATA ANALYTICS ═══════════════════════════════════════════════════
+  renderLoadInsights();
+}
+
+function renderLoadInsights(){
+  var loads=(loadsData&&loadsData.loads)||[];
+  var archive=(loadsData&&loadsData.archive)||[];
+  var allLoads=loads.concat(archive); // include historical for richer stats
+  var meta=document.getElementById('ins-loads-meta');
+  if(meta)meta.textContent=loads.length+' active · '+archive.length+' archived · '+allLoads.length+' total';
+
+  if(!allLoads.length){
+    document.getElementById('ins-loads-kpis').innerHTML='<div class="ins-card" style="grid-column:1/-1;color:#5a6a7a;font-size:12px">No load data yet. Upload a TransportPro HTM/PDF on the Loads tab.</div>';
+    ['ins-loads-equip-donut','ins-loads-equip-legend','ins-loads-customers','ins-loads-states','ins-loads-rate-by-equip','ins-loads-best-lanes','ins-loads-lanes'].forEach(function(id){
+      var el=document.getElementById(id);if(el)el.innerHTML='';
+    });
+    return;
+  }
+
+  // ── 1. KPI cards ──
+  var totalLoads=allLoads.length;
+  var withRate=allLoads.filter(function(l){return Number(l.rate)>0;});
+  var rates=withRate.map(function(l){return Number(l.rate);});
+  var avgRate=rates.length?Math.round(rates.reduce(function(a,b){return a+b;},0)/rates.length):0;
+  var totalMiles=allLoads.reduce(function(s,l){var m=parseFloat(l.miles);return s+(isNaN(m)?0:m);},0);
+  var uniqueCust=new Set(allLoads.map(function(l){return (l.customer||'').trim();}).filter(Boolean)).size;
+  var totalRev=rates.reduce(function(a,b){return a+b;},0);
+  var pendingLoads=loads.length;
+  document.getElementById('ins-loads-kpis').innerHTML=[
+    {val:totalLoads.toLocaleString(),lbl:'Total Loads',sub:pendingLoads+' currently active'},
+    {val:'$'+(avgRate||0).toLocaleString(),lbl:'Avg Rate',sub:withRate.length+' loads with rate'},
+    {val:Math.round(totalMiles).toLocaleString(),lbl:'Total Miles',sub:totalMiles?'$'+(totalRev/totalMiles).toFixed(2)+' avg/mile':'—'},
+    {val:uniqueCust.toLocaleString(),lbl:'Unique Customers',sub:'across all uploads'}
+  ].map(function(k){
+    return '<div class="ins-card">'
+      +'<div class="ins-kpi-val">'+k.val+'</div>'
+      +'<div class="ins-kpi-lbl">'+k.lbl+'</div>'
+      +'<div class="ins-kpi-sub">'+k.sub+'</div>'
+    +'</div>';
+  }).join('');
+
+  // ── 2. Loads by Equipment (donut) ──
+  var equipMap=new Map();
+  allLoads.forEach(function(l){
+    var e=(l.equipment||'Unknown').trim();
+    equipMap.set(e,(equipMap.get(e)||0)+1);
+  });
+  var equipArr=[...equipMap.entries()].sort(function(a,b){return b[1]-a[1];})
+    .map(function(e,i){return {label:e[0],count:e[1],color:INSIGHT_PALETTE[i%INSIGHT_PALETTE.length]};});
+  document.getElementById('ins-loads-equip-donut').innerHTML=_svgDonut(equipArr);
+  var equipTotal=equipArr.reduce(function(s,x){return s+x.count;},0)||1;
+  document.getElementById('ins-loads-equip-legend').innerHTML=equipArr.map(function(e){
+    return '<div class="ins-donut-item">'
+      +'<div class="ins-donut-swatch" style="background:'+e.color+'"></div>'
+      +'<span>'+e.label+'</span>'
+      +'<span class="ins-donut-pct">'+e.count+' · '+Math.round((e.count/equipTotal)*100)+'%</span>'
+    +'</div>';
+  }).join('');
+  document.getElementById('ins-loads-equip-sub').textContent=equipArr.length+' types';
+
+  // ── 3. Top Customers (from loads) ──
+  var custMap=new Map();
+  allLoads.forEach(function(l){
+    var c=(l.customer||'').trim();
+    if(!c)return;
+    var prev=custMap.get(c)||{count:0,rev:0,rateCount:0};
+    prev.count++;
+    var r=Number(l.rate);if(r>0){prev.rev+=r;prev.rateCount++;}
+    custMap.set(c,prev);
+  });
+  var custArr=[...custMap.entries()].sort(function(a,b){return b[1].count-a[1].count;}).slice(0,15);
+  document.getElementById('ins-loads-customers').innerHTML=custArr.map(function(e){
+    var avgC=e[1].rateCount?Math.round(e[1].rev/e[1].rateCount):0;
+    return '<div class="ins-list-row" title="Avg rate $'+avgC.toLocaleString()+'"><span class="ins-list-name">'+e[0]+'</span><span class="ins-list-val">'+e[1].count+(avgC?' · $'+(avgC>=1000?(avgC/1000).toFixed(1)+'k':avgC):'')+'</span></div>';
+  }).join('')||'<div style="color:#5a6a7a;font-size:12px">No customer data.</div>';
+
+  // ── 4. Top Pickup States ──
+  var stateMap=new Map();
+  allLoads.forEach(function(l){
+    var s=(l.pickup_state||'').toUpperCase().trim();
+    if(!s||s.length!==2)return;
+    stateMap.set(s,(stateMap.get(s)||0)+1);
+  });
+  var stateArr=[...stateMap.entries()].sort(function(a,b){return b[1]-a[1];}).slice(0,15);
+  var maxState=stateArr.length?stateArr[0][1]:1;
+  document.getElementById('ins-loads-states').innerHTML=stateArr.map(function(e){
+    var pct=Math.max(2,(e[1]/maxState)*100);
+    var safeKey=e[0];
+    return '<div class="ins-bar-row" style="cursor:pointer" onclick="_loadsJumpState(\''+safeKey+'\')" title="Click to filter Loads tab to '+safeKey+'">'
+      +'<div class="ins-bar-label">'+e[0]+'</div>'
+      +'<div class="ins-bar-track"><div class="ins-bar-fill" style="width:'+pct+'%;background:linear-gradient(90deg,#4a9eff,#7accff)"></div></div>'
+      +'<div class="ins-bar-val">'+e[1]+'</div>'
+    +'</div>';
+  }).join('')||'<div style="color:#5a6a7a;font-size:12px">No state data.</div>';
+
+  // ── 5. Avg Rate by Equipment ──
+  var rateByEquip=new Map();
+  allLoads.forEach(function(l){
+    var e=(l.equipment||'Unknown').trim();
+    var r=Number(l.rate);
+    if(!r||r<=0)return;
+    var prev=rateByEquip.get(e)||{sum:0,n:0};
+    prev.sum+=r;prev.n++;
+    rateByEquip.set(e,prev);
+  });
+  var rbeArr=[...rateByEquip.entries()].map(function(e){return {equip:e[0],avg:Math.round(e[1].sum/e[1].n),n:e[1].n};})
+    .sort(function(a,b){return b.avg-a.avg;});
+  var maxRbe=rbeArr.length?rbeArr[0].avg:1;
+  document.getElementById('ins-loads-rate-by-equip').innerHTML=rbeArr.map(function(e){
+    var pct=Math.max(2,(e.avg/maxRbe)*100);
+    return '<div class="ins-bar-row">'
+      +'<div class="ins-bar-label">'+e.equip+'</div>'
+      +'<div class="ins-bar-track"><div class="ins-bar-fill" style="width:'+pct+'%;background:linear-gradient(90deg,#4acc7a,#7aff9a)"></div></div>'
+      +'<div class="ins-bar-val">$'+e.avg.toLocaleString()+'</div>'
+    +'</div>';
+  }).join('')||'<div style="color:#5a6a7a;font-size:12px">No rate data.</div>';
+
+  // ── 6. Best-Paying Lanes ($/mile) ──
+  var lanePay=new Map();
+  allLoads.forEach(function(l){
+    var os=(l.pickup_state||'').toUpperCase();var ds=(l.delivery_state||'').toUpperCase();
+    if(!os||!ds||os.length!==2||ds.length!==2)return;
+    var r=Number(l.rate);var m=parseFloat(l.miles);
+    if(!r||!m||m<=0)return;
+    var key=os+' → '+ds;
+    var prev=lanePay.get(key)||{sumPM:0,n:0,sumR:0,sumM:0};
+    prev.sumPM+=r/m;prev.n++;prev.sumR+=r;prev.sumM+=m;
+    lanePay.set(key,prev);
+  });
+  var bestArr=[...lanePay.entries()].map(function(e){return {lane:e[0],ppm:e[1].sumPM/e[1].n,n:e[1].n,avgR:Math.round(e[1].sumR/e[1].n)};})
+    .filter(function(e){return e.n>=2;}).sort(function(a,b){return b.ppm-a.ppm;}).slice(0,10);
+  document.getElementById('ins-loads-best-lanes').innerHTML=bestArr.map(function(e){
+    return '<div class="ins-list-row" title="Avg rate $'+e.avgR.toLocaleString()+' over '+e.n+' loads"><span class="ins-list-name">'+e.lane+'</span><span class="ins-list-val">$'+e.ppm.toFixed(2)+'/mi</span></div>';
+  }).join('')||'<div style="color:#5a6a7a;font-size:12px">Need at least 2 loads per lane with rate + miles.</div>';
+
+  // ── 7. Top Lanes by Volume ──
+  var laneVolMap=new Map();
+  allLoads.forEach(function(l){
+    var os=(l.pickup_state||'').toUpperCase();var ds=(l.delivery_state||'').toUpperCase();
+    if(!os||!ds||os.length!==2||ds.length!==2)return;
+    var key=os+' → '+ds;
+    var prev=laneVolMap.get(key)||{count:0,rates:[]};
+    prev.count++;
+    var r=Number(l.rate);if(r>0)prev.rates.push(r);
+    laneVolMap.set(key,prev);
+  });
+  var laneVolArr=[...laneVolMap.entries()].map(function(e){
+    var avgR=e[1].rates.length?Math.round(e[1].rates.reduce(function(a,b){return a+b;},0)/e[1].rates.length):0;
+    return {lane:e[0],count:e[1].count,avgR:avgR};
+  }).sort(function(a,b){return b.count-a.count;}).slice(0,15);
+  var maxVol=laneVolArr.length?laneVolArr[0].count:1;
+  document.getElementById('ins-loads-lanes').innerHTML=laneVolArr.map(function(l){
+    var pct=Math.max(2,(l.count/maxVol)*100);
+    return '<div class="ins-bar-row">'
+      +'<div class="ins-bar-label">'+l.lane+'</div>'
+      +'<div class="ins-bar-track"><div class="ins-bar-fill" style="width:'+pct+'%"></div></div>'
+      +'<div class="ins-bar-val">'+l.count+(l.avgR?' · $'+(l.avgR>=1000?(l.avgR/1000).toFixed(1)+'k':l.avgR):'')+'</div>'
+    +'</div>';
+  }).join('')||'<div style="color:#5a6a7a;font-size:12px">No lane data.</div>';
+  document.getElementById('ins-loads-lanes-sub').textContent=laneVolMap.size+' unique lanes';
+}
+
+// _loadsJumpState — click a state in load insights to filter Loads tab
+function _loadsJumpState(state){
+  switchView('loads');
+  setTimeout(function(){
+    var input=document.getElementById('loads-search');
+    if(input){input.value=state;input.dispatchEvent(new Event('input'));}
+    showToast('Filtered Loads to pickup state: '+state);
+  },80);
 }
 
 // ── LANE MAP — SVG US map with weighted lane arcs ───────────────────────────
