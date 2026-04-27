@@ -7,3 +7,24 @@ node_modules/
 # Python cache
 __pycache__/
 *.pyc
+
+# Claude scheduled tasks state (local only)
+.claude/scheduled_tasks.lock
+.claude/projects/
+
+# Local artifacts that shouldn't be in the repo
+qa_slides/
+screenshots/
+*.pptx
+make_pptx.js
+deno.lock
+.gcloudignore
+backend/data/state_backup_*.json
+
+# Windows tmp file paths that got collected with the wrong filename
+C\357\200\272Users*
+*AppDataLocalTemp*
+
+# Local IDE / OS noise
+.DS_Store
+Thumbs.db

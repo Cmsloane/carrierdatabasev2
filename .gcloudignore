@@ -1,9 +1,0 @@
-.git
-.gitignore
-backups
-ChatGPT/node_modules
-ChatGPT/.netlify
-ChatGPT/netlify
-backend/node_modules
-backend/.env
-backend/data/*.bak
