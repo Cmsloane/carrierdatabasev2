@@ -660,6 +660,7 @@ export default async (request) => {
       const days = Math.max(1, Math.min(Number(reqUrl.searchParams.get('days') || bodyOpts.days || 0) || 0, 730));
       const max  = Math.max(0, Math.min(Number(reqUrl.searchParams.get('max')  || bodyOpts.max  || 0) || 0, 500));
       const threadCap = Math.max(0, Math.min(Number(reqUrl.searchParams.get('threadCap') || bodyOpts.threadCap || 0) || 0, 200));
+      const fetchCap  = Math.max(0, Math.min(Number(reqUrl.searchParams.get('fetchCap')  || bodyOpts.fetchCap  || 0) || 0, 200));
 
       // Find first connected user with refresh token
       let connectedUsers = [];
@@ -675,8 +676,9 @@ export default async (request) => {
       const current = await getState(store);
       let carriers = clone(current.carriers || []);
       const opts = { credentials: creds };
-      if (days) opts.daysBack = days;
-      if (max) opts.maxResults = max;
+      if (days)     opts.daysBack = days;
+      if (max)      opts.maxResults = max;
+      if (fetchCap) opts.fullFetchCap = fetchCap;
 
       const t0 = Date.now();
       let result = null, err = null;
@@ -686,7 +688,9 @@ export default async (request) => {
           carriers = [...carriers, ...(r.newCarriers || [])];
           result = { newCarriers: r.newCarriers?.length || 0, names: (r.newCarriers || []).map(c => c.company), skipped: r.skipped?.length || 0, scanned: r.messagesScanned };
         } else if (part === 'inbox-rc') {
-          const r = await syncCarriersFromGmail(carriers, creds, days ? { daysBack: days, inboxMax: max || 100, sentMax: max ? Math.floor(max * 0.8) : 80 } : {});
+          const ircOpts = days ? { daysBack: days, inboxMax: max || 100, sentMax: max ? Math.floor(max * 0.8) : 80 } : {};
+          if (fetchCap) ircOpts.fullFetchCap = fetchCap;
+          const r = await syncCarriersFromGmail(carriers, creds, ircOpts);
           carriers = r.carriers || carriers;
           if (r.newCarriers?.length) carriers = [...carriers, ...r.newCarriers];
           result = { matchedCarriers: r.gmailSync?.matchedCarriers || 0, newCarriers: r.newCarriers?.length || 0, scanned: r.gmailSync?.scannedMessages || 0 };

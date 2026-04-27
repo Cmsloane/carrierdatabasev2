@@ -794,6 +794,9 @@ export async function syncCarriersFromGmail(carriers, credentials = null, option
   const daysBack = Math.max(1, Math.min(Number(options.daysBack || 90), 730));
   const inboxMax = Math.max(10, Math.min(Number(options.inboxMax  || 100), 500));
   const sentMax  = Math.max(10, Math.min(Number(options.sentMax   || 80),  500));
+  // fullFetchCap: how many candidate messages to actually fetch full body for.
+  // Bumping this captures more carrier data but eats into the 10s budget.
+  const fullFetchCap = Math.max(5, Math.min(Number(options.fullFetchCap || 40), 200));
 
   // Broader subject phrasing — catches the long tail of carrier confirmations
   // we previously missed (dispatch sheet, freight conf, carrier packet, trip sheet).
@@ -835,8 +838,8 @@ export async function syncCarriersFromGmail(carriers, credentials = null, option
     }
   }
 
-  // Phase 2: full-content fetch for confirmed candidates (cap at 40 to stay within timeout)
-  for (const msgId of candidateIds.slice(0, 40)) {
+  // Phase 2: full-content fetch for confirmed candidates (configurable cap)
+  for (const msgId of candidateIds.slice(0, fullFetchCap)) {
     try {
       const payload = await gmailRequest(`messages/${encodeURIComponent(msgId)}`, accessToken, { format: 'full' });
       const headers = safeHeaderMap(payload);
@@ -942,6 +945,9 @@ export async function syncNewCarriersFromBookNow(carriers, options = {}) {
   const accessToken = await fetchAccessToken(config);
   const daysBack = Math.max(1, Math.min(Number(options.daysBack || 30), 730));
   const maxResults = Math.max(10, Math.min(Number(options.maxResults || 50), 500));
+  // fullFetchCap: how many message bodies to fetch+parse (each ~100ms sequential).
+  // Cap stays under Netlify 10s budget. Override via options.fullFetchCap.
+  const fullFetchCap = Math.max(5, Math.min(Number(options.fullFetchCap || maxResults), 200));
   // to:me + exact subject phrase targets only emails sent directly to the authenticated
   // user — not forwarded copies in other labels. Emails Conrad books are addressed to him
   // directly from noreply@circledelivers.com; forwarded FW Carrier Sales copies have
@@ -959,9 +965,21 @@ export async function syncNewCarriersFromBookNow(carriers, options = {}) {
   const newCarriers = [];
   const skipped     = [];
 
-  for (const msg of messages) {
-    if (!msg?.id) continue;
-    const payload = await gmailRequest(`messages/${encodeURIComponent(msg.id)}`, accessToken, { format: 'full' });
+  // Parallel batched fetch — much faster than the prior serial loop, which hit
+  // 30s+ for large windows. Process in batches of 10 to avoid rate-limit spikes.
+  const toFetch = messages.slice(0, fullFetchCap).filter(m => m?.id);
+  const FETCH_BATCH = 10;
+  const fetched = [];
+  for (let i = 0; i < toFetch.length; i += FETCH_BATCH) {
+    const slice = toFetch.slice(i, i + FETCH_BATCH);
+    const results = await Promise.all(slice.map(m =>
+      gmailRequest(`messages/${encodeURIComponent(m.id)}`, accessToken, { format: 'full' }).catch(() => null)
+    ));
+    fetched.push(...results.filter(Boolean));
+  }
+
+  for (const payload of fetched) {
+    if (!payload) continue;
     const body    = extractMessageText(payload);
     const parsed  = parseBookNowEmail(body);
     if (!parsed) continue;

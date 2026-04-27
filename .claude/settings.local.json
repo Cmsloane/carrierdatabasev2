@@ -11,7 +11,12 @@
       "mcp__Claude_Preview__preview_start",
       "Bash(where npx:*)",
       "Bash(where node:*)",
-      "Bash(where netlify:*)"
+      "Bash(where netlify:*)",
+      "mcp__PDF__By_Anthropic___read_pdf_bytes",
+      "Bash(curl -s -X POST https://carrierdatabasev2.netlify.app/api/state/sync -H \"Content-Type: application/json\" -d @/tmp/sync_payload.json)",
+      "Bash(curl -s -X POST https://carrierdatabasev2.netlify.app/api/state/sync -H \"Content-Type: application/json\" --data-binary @/tmp/sync_payload.json)",
+      "Read(//c/tmp/**)",
+      "Bash(python3 -c \":*)"
     ]
   }
 }
