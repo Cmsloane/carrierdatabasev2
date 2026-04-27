@@ -792,8 +792,8 @@ export async function syncCarriersFromGmail(carriers, credentials = null, option
 
   // Caller-controlled time window + max results (defaults preserve previous behavior).
   const daysBack = Math.max(1, Math.min(Number(options.daysBack || 90), 730));
-  const inboxMax = Math.max(10, Math.min(Number(options.inboxMax  || 300), 500));
-  const sentMax  = Math.max(10, Math.min(Number(options.sentMax   || 250), 500));
+  const inboxMax = Math.max(10, Math.min(Number(options.inboxMax  || 100), 500));
+  const sentMax  = Math.max(10, Math.min(Number(options.sentMax   || 80),  500));
 
   // Broader subject phrasing — catches the long tail of carrier confirmations
   // we previously missed (dispatch sheet, freight conf, carrier packet, trip sheet).
@@ -940,8 +940,8 @@ export async function syncNewCarriersFromBookNow(carriers, options = {}) {
   }
 
   const accessToken = await fetchAccessToken(config);
-  const daysBack = Math.max(1, Math.min(Number(options.daysBack || 90), 730));
-  const maxResults = Math.max(10, Math.min(Number(options.maxResults || 250), 500));
+  const daysBack = Math.max(1, Math.min(Number(options.daysBack || 30), 730));
+  const maxResults = Math.max(10, Math.min(Number(options.maxResults || 50), 500));
   // to:me + exact subject phrase targets only emails sent directly to the authenticated
   // user — not forwarded copies in other labels. Emails Conrad books are addressed to him
   // directly from noreply@circledelivers.com; forwarded FW Carrier Sales copies have
@@ -1160,7 +1160,7 @@ export async function syncNewCarriersFromSentMail(carriers, options = {}) {
   }
   const accessToken = await fetchAccessToken(config);
   const daysBack = Math.max(1, Math.min(Number(options.daysBack || 90), 730));
-  const maxResults = Math.max(10, Math.min(Number(options.maxResults || 250), 500));
+  const maxResults = Math.max(10, Math.min(Number(options.maxResults || 60), 500));
 
   // Narrow query to load-related sent mail only.
   const SENT_QUERY = `in:sent newer_than:${daysBack}d ("load" OR "carrier" OR "booking" OR "dispatch" OR "rate" OR "trip sheet" OR "freight") -in:trash -in:spam`;
@@ -1351,9 +1351,9 @@ export async function syncRCThreadProgress(carriers, options = {}) {
   const OUR_DOMAINS = config.ignoreDomains; // ['circledelivers.com', 'circlelogistics.com']
   const emailIndex = buildCarrierEmailIndex(carriers);
 
-  const daysBack   = Math.max(1, Math.min(Number(options.daysBack   || 60), 730));
-  const maxResults = Math.max(10, Math.min(Number(options.maxResults || 250), 500));
-  const threadCap  = Math.max(5,  Math.min(Number(options.threadCap  || 80), 200));
+  const daysBack   = Math.max(1, Math.min(Number(options.daysBack   || 45), 730));
+  const maxResults = Math.max(10, Math.min(Number(options.maxResults || 100), 500));
+  const threadCap  = Math.max(5,  Math.min(Number(options.threadCap  || 30), 200));
 
   // Step 1: Find RC messages by subject — metadata only (fast)
   const msgList = await gmailRequest('messages', accessToken, {
@@ -1525,8 +1525,8 @@ export async function syncCarrierOutreachFromGmail(carriers, options = {}) {
   }
   const accessToken = await fetchAccessToken(config);
   const daysBack = Math.max(1, Math.min(Number(options.daysBack || 90), 730));
-  const sentMax  = Math.max(10, Math.min(Number(options.sentMax  || 250), 500));
-  const inboxMax = Math.max(10, Math.min(Number(options.inboxMax || 200), 500));
+  const sentMax  = Math.max(10, Math.min(Number(options.sentMax  || 100), 500));
+  const inboxMax = Math.max(10, Math.min(Number(options.inboxMax || 75), 500));
 
   // Build email → carrier index (normalized email → index in carriers array)
   const emailIndex = new Map();

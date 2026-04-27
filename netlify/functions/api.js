@@ -641,6 +641,89 @@ export default async (request) => {
       return json(200, syncResponse);
     }
 
+    // ── Per-function Gmail sync endpoints ─────────────────────────────────────
+    // Each runs ONE sync function so it fits in the Netlify 10s budget.
+    // Use these for progressive batches (14d → 30d → ... → 365d).
+    // All accept ?days=N&max=M (and threadCap=N for /threads).
+    if (request.method === 'POST' && pathname.startsWith('/gmail/sync/')) {
+      const part = pathname.slice('/gmail/sync/'.length);
+      const validParts = ['booknow', 'inbox-rc', 'sent', 'threads', 'outreach'];
+      if (!validParts.includes(part)) {
+        return json(404, { error: `Unknown sync part: ${part}. Valid: ${validParts.join(', ')}` });
+      }
+      if (!gmailSyncConfigStatus().configured) {
+        return json(200, { ok: false, configured: false, message: 'Gmail OAuth not configured.' });
+      }
+
+      let bodyOpts = {};
+      try { bodyOpts = await parseJsonBody(request); } catch {}
+      const days = Math.max(1, Math.min(Number(reqUrl.searchParams.get('days') || bodyOpts.days || 0) || 0, 730));
+      const max  = Math.max(0, Math.min(Number(reqUrl.searchParams.get('max')  || bodyOpts.max  || 0) || 0, 500));
+      const threadCap = Math.max(0, Math.min(Number(reqUrl.searchParams.get('threadCap') || bodyOpts.threadCap || 0) || 0, 200));
+
+      // Find first connected user with refresh token
+      let connectedUsers = [];
+      try {
+        const { blobs } = await store.list({ prefix: 'user-' });
+        const all = await Promise.all(blobs.map(b => store.get(b.key, { type: 'json' })));
+        connectedUsers = all.filter(u => u?.refreshToken);
+      } catch {}
+      const u = connectedUsers[0];
+      if (!u) return json(200, { ok: false, error: 'No connected Gmail accounts.' });
+      const creds = { clientId: GOOGLE_CLIENT_ID, clientSecret: GOOGLE_CLIENT_SECRET, refreshToken: u.refreshToken, userEmail: u.email };
+
+      const current = await getState(store);
+      let carriers = clone(current.carriers || []);
+      const opts = { credentials: creds };
+      if (days) opts.daysBack = days;
+      if (max) opts.maxResults = max;
+
+      const t0 = Date.now();
+      let result = null, err = null;
+      try {
+        if (part === 'booknow') {
+          const r = await syncNewCarriersFromBookNow(carriers, opts);
+          carriers = [...carriers, ...(r.newCarriers || [])];
+          result = { newCarriers: r.newCarriers?.length || 0, names: (r.newCarriers || []).map(c => c.company), skipped: r.skipped?.length || 0, scanned: r.messagesScanned };
+        } else if (part === 'inbox-rc') {
+          const r = await syncCarriersFromGmail(carriers, creds, days ? { daysBack: days, inboxMax: max || 100, sentMax: max ? Math.floor(max * 0.8) : 80 } : {});
+          carriers = r.carriers || carriers;
+          if (r.newCarriers?.length) carriers = [...carriers, ...r.newCarriers];
+          result = { matchedCarriers: r.gmailSync?.matchedCarriers || 0, newCarriers: r.newCarriers?.length || 0, scanned: r.gmailSync?.scannedMessages || 0 };
+        } else if (part === 'sent') {
+          const r = await syncNewCarriersFromSentMail(carriers, opts);
+          carriers = [...carriers, ...(r.newCarriers || [])];
+          result = { newCarriers: r.newCarriers?.length || 0, names: (r.newCarriers || []).map(c => c.company), scanned: r.scanned };
+        } else if (part === 'threads') {
+          const tcOpts = { credentials: creds };
+          if (days) tcOpts.daysBack = days;
+          if (max)  tcOpts.maxResults = max;
+          if (threadCap) tcOpts.threadCap = threadCap;
+          const r = await syncRCThreadProgress(carriers, tcOpts);
+          carriers = r.carriers || carriers;
+          result = { threadsScanned: r.threadsScanned, updatedCarriers: r.updatedCarriers };
+        } else if (part === 'outreach') {
+          const r = await syncCarrierOutreachFromGmail(carriers, opts);
+          carriers = r.carriers || carriers;
+          result = { updated: r.updated, scanned: r.scanned };
+        }
+      } catch (e) { err = e.message; }
+
+      if (err) return json(200, { ok: false, part, days: days || 'default', error: err, durationMs: Date.now() - t0 });
+
+      const synced = await writeState(store, { ...current, carriers, carriersUpdatedAt: nowIso() }, `gmail_sync_${part}`);
+      return json(200, {
+        ok: true,
+        part,
+        days: days || 'default',
+        max: max || 'default',
+        durationMs: Date.now() - t0,
+        revision: synced.meta.revision,
+        carrierCount: carriers.length,
+        ...result
+      });
+    }
+
     // ── Backups: snapshot, list, get, export ──────────────────────────────────
     // Disaster recovery — independent of Gmail. Live state always lives in
     // Netlify Blobs; these endpoints add daily snapshots + manual JSON export.
