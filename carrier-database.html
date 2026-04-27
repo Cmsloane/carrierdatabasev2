@@ -1479,6 +1479,7 @@ function deleteSelectedCarrier(){
   var deletedCompany=c.company;
   closePanel();
   renderTable();
+  refreshActiveView();
   var now=new Date().toISOString();
   fetch('/api/state/sync',{
     method:'POST',
@@ -1589,6 +1590,7 @@ function mergeCarriers(){
   closeMergeModal();
   selectedId=tgt.id;
   renderTable();
+  refreshActiveView();
   selectCarrier(tgt.id);
 
   var now=new Date().toISOString();
@@ -1644,6 +1646,7 @@ function saveCarrier(){
   updateCarriersStats();
   closeModal();
   renderTable();
+  refreshActiveView();
 }
 // ═══ CARRIERS META ════════════════════════════════════════════════════════
 let carriersUpdatedAt="2026-04-14T12:00:46Z";
@@ -1968,8 +1971,9 @@ function renderInsights(){
   var maxLaneCount=laneArr.length?laneArr[0].count:1;
   document.getElementById('ins-lanes').innerHTML=laneArr.map(function(l){
     var pct=Math.max(2,(l.count/maxLaneCount)*100);
-    return '<div class="ins-bar-row">'
-      +'<div class="ins-bar-label" title="'+l.lane+'">'+l.lane+'</div>'
+    var safeKey=l.lane.replace(/'/g,"\\'");
+    return '<div class="ins-bar-row" style="cursor:pointer" onclick="_insJumpToLaneCarriers(\''+safeKey+'\')" title="Click to find carriers running this lane">'
+      +'<div class="ins-bar-label">'+l.lane+'</div>'
       +'<div class="ins-bar-track"><div class="ins-bar-fill" style="width:'+pct+'%"></div></div>'
       +'<div class="ins-bar-val">'+l.count+' load'+(l.count>1?'s':'')+(l.carriers>1?' · '+l.carriers+' c':'')+'</div>'
     +'</div>';
@@ -2227,7 +2231,7 @@ function renderLaneMap(){
   // ── Table ──
   var tbody=document.getElementById('lm-table-body');
   tbody.innerHTML=laneArr.slice(0,40).map(function(l){
-    return '<tr data-key="'+l.from+'-'+l.to+'" onclick="_lmHighlight(this)">'
+    return '<tr data-key="'+l.from+'-'+l.to+'" data-from="'+l.from+'" data-to="'+l.to+'" onclick="_lmHighlight(this)" ondblclick="_lmJumpToCarriers(this)" title="Click to highlight on map · Double-click to filter Carriers tab">'
       +'<td>'+l.from+' → '+l.to+'</td>'
       +'<td style="text-align:right;font-family:DM Mono,monospace">'+l.count+'</td>'
       +'<td style="text-align:right;font-family:DM Mono,monospace">'+l.carriers+'</td>'
@@ -2278,6 +2282,30 @@ function _lmHighlight(row){
   document.querySelectorAll('#lm-table-body tr').forEach(function(tr){
     tr.style.background=tr===row?'rgba(74,158,255,0.1)':'';
   });
+}
+
+// _lmJumpToCarriers — double-click a lane row to switch to Carriers tab
+// with a search prefilled to find carriers who've run that lane.
+function _lmJumpToCarriers(row){
+  var from=row.getAttribute('data-from');
+  var to=row.getAttribute('data-to');
+  switchView('carriers');
+  setTimeout(function(){
+    var input=document.getElementById('search-input');
+    if(input){input.value=from+' '+to;input.dispatchEvent(new Event('input'));}
+    showToast('Filtered to carriers matching '+from+' → '+to);
+  },80);
+}
+
+// _insJumpToLaneCarriers — click a Top Lanes bar in Insights to filter
+// the Carriers tab by that lane string.
+function _insJumpToLaneCarriers(lane){
+  switchView('carriers');
+  setTimeout(function(){
+    var input=document.getElementById('search-input');
+    if(input){input.value=lane;input.dispatchEvent(new Event('input'));}
+    showToast('Filtered to carriers matching: '+lane);
+  },80);
 }
 // extractStateFromStr is defined elsewhere in this file (around line 2893).
 // It returns the state code from a "City, ST" string or null if none found —
@@ -2382,6 +2410,7 @@ function applyParsedLoads(parsed, filename){
   renderLoads();
   renderTable();
   updateCarriersStats();
+  refreshActiveView();  // pushes new load data into Insights/Lane Map if those tabs are open
   var h2=now.getHours(),m2=now.getMinutes(),ap=h2>=12?'PM':'AM';
   h2=h2%12||12;var ts=h2+':'+(m2<10?'0':'')+m2+' '+ap;
   var msg='✓ '+newCount+' new + '+updatedCount+' updated · '+mergedLoads.length+' total in DB · '+ts;
@@ -3382,8 +3411,23 @@ function applyLiveState(data) {
     if (data.loadsData) loadsData = data.loadsData;
     updateStats(); renderTable(); updateLoadsStats(); computeAllMatches();
     updateCarriersStats();
+    refreshActiveView();
     var lbl = document.getElementById('live-sync-label');
     if (lbl) lbl.textContent = 'Synced · ' + formatSyncTime(data.meta && (data.meta.lastSyncedAt || data.meta.carriersUpdatedAt) || carriersUpdatedAt);
+  }
+}
+
+// refreshActiveView — re-renders whichever tab is currently visible so that
+// changes to carriers[] / loadsData propagate everywhere. Called automatically
+// after every: live poll bump, Gmail sync result, manual edit, delete, merge,
+// load upload, and view switch.
+function refreshActiveView(){
+  var b=document.body.classList;
+  if(b.contains('show-insights')){ try{renderInsights();}catch(e){console.warn('insights refresh:',e);} }
+  if(b.contains('show-lanemap')){  try{renderLaneMap();}catch(e){console.warn('lanemap refresh:',e);} }
+  if(b.contains('show-loads')){    try{renderLoads();}  catch(e){console.warn('loads refresh:',e);}   }
+  if(!b.contains('show-loads')&&!b.contains('show-insights')&&!b.contains('show-lanemap')){
+    try{renderTable();}catch(e){}
   }
 }
 function fetchLiveState(callback) {
