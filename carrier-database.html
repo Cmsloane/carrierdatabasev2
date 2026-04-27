@@ -88,6 +88,29 @@ body.show-loads #loads-table-wrap{display:block}
 body.show-insights #statsbar,body.show-insights #filterbar,body.show-insights #table-wrap,body.show-insights .loads-view,body.show-insights #loads-statsbar,body.show-insights #loads-filterbar,body.show-insights #loads-table-wrap{display:none}
 body.show-insights .insights-view{display:block}
 body.show-insights #insights-wrap{display:block}
+body.show-lanemap #statsbar,body.show-lanemap #filterbar,body.show-lanemap #table-wrap,body.show-lanemap .loads-view,body.show-lanemap #loads-statsbar,body.show-lanemap #loads-filterbar,body.show-lanemap #loads-table-wrap{display:none}
+body.show-lanemap .lanemap-view{display:block}
+body.show-lanemap #lanemap-wrap{display:block}
+.lanemap-view{display:none}
+#lanemap-wrap{margin-top:140px;padding:20px 24px;overflow:auto;height:calc(100vh - 140px);background:#0d1118}
+.lm-controls{display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center;font-size:12px;color:#8a9aaa}
+.lm-controls label{display:flex;align-items:center;gap:6px;cursor:pointer}
+.lm-controls select,.lm-controls input[type=number]{background:#0d1118;border:1px solid rgba(255,255,255,0.08);color:#c8cdd6;padding:5px 8px;border-radius:4px;font-family:inherit;font-size:12px}
+#lm-svg{width:100%;height:auto;background:#0a0e16;border:1px solid rgba(255,255,255,0.06);border-radius:8px;display:block}
+.lm-state-dot{fill:rgba(74,158,255,0.18);stroke:rgba(74,158,255,0.4);stroke-width:0.6;cursor:default;transition:fill 0.15s,stroke 0.15s}
+.lm-state-dot:hover{fill:rgba(74,158,255,0.4);stroke:#4a9eff;stroke-width:1}
+.lm-state-label{fill:#5a6a7a;font-family:'DM Mono',monospace;font-size:8px;text-anchor:middle;pointer-events:none;font-weight:600}
+.lm-arc{fill:none;cursor:pointer;transition:opacity 0.15s,stroke-width 0.15s}
+.lm-arc:hover{opacity:1!important;filter:drop-shadow(0 0 4px currentColor)}
+.lm-side{display:grid;grid-template-columns:1fr 320px;gap:16px;margin-top:18px}
+@media (max-width:900px){.lm-side{grid-template-columns:1fr}}
+.lm-table{width:100%;border-collapse:collapse;background:#151b27;border:1px solid rgba(255,255,255,0.06);border-radius:8px;overflow:hidden}
+.lm-table th{padding:10px 12px;text-align:left;font-size:11px;color:#5a6a7a;font-weight:600;letter-spacing:0.4px;text-transform:uppercase;background:rgba(255,255,255,0.02);border-bottom:1px solid rgba(255,255,255,0.05)}
+.lm-table td{padding:9px 12px;font-size:12px;color:#c8cdd6;border-bottom:1px solid rgba(255,255,255,0.03)}
+.lm-table tr:hover td{background:rgba(255,255,255,0.03);cursor:pointer}
+.lm-side-card{background:#151b27;border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:14px}
+.lm-legend-row{display:flex;align-items:center;gap:8px;font-size:11px;color:#8a9aaa;margin-bottom:6px}
+.lm-legend-swatch{width:30px;height:3px;border-radius:2px}
 #insights-wrap{margin-top:140px;padding:24px;overflow:auto;height:calc(100vh - 140px);background:#0d1118}
 .ins-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:18px}
 .ins-card{background:#151b27;border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:16px}
@@ -516,6 +539,7 @@ body.show-insights #insights-wrap{display:block}
   <button class="tab-btn active" id="tab-carriers" onclick="switchView('carriers')">Carriers</button>
   <button class="tab-btn" id="tab-loads" onclick="switchView('loads')">Loads <span class="tab-count" id="tab-loads-count">0</span></button>
   <button class="tab-btn" id="tab-insights" onclick="switchView('insights')">Insights</button>
+  <button class="tab-btn" id="tab-lanemap" onclick="switchView('lanemap')">Lane Map</button>
 </div>
   <div class="sync-badge" id="live-sync-badge"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#e8412a" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg><span id="live-sync-label">Synced · Mar 19, 2026</span></div>
   <button id="carrier-sync-btn" onclick="triggerCarrierSync()" title="Scan Gmail for new Book Now Dispatch emails and add new carriers">⟳ <span class="btn-label">Carrier Sync</span></button>
@@ -709,6 +733,57 @@ body.show-insights #insights-wrap{display:block}
   <div class="ins-card" style="margin-bottom:18px">
     <div class="ins-section-title">Rate Distribution <span class="ins-section-sub">avg rate by lane (top 12)</span></div>
     <div class="ins-bars" id="ins-rates"></div>
+  </div>
+</div>
+
+<!-- Lane Map View -->
+<div id="lanemap-wrap" class="lanemap-view">
+  <div class="lm-controls">
+    <label>Color by:
+      <select id="lm-color-mode" onchange="renderLaneMap()">
+        <option value="count">Load Count</option>
+        <option value="rate">Avg Rate</option>
+        <option value="recency">Recency</option>
+      </select>
+    </label>
+    <label>Min loads:
+      <input type="number" id="lm-min-loads" value="1" min="1" max="50" style="width:60px" onchange="renderLaneMap()">
+    </label>
+    <label>Filter state:
+      <select id="lm-state-filter" onchange="renderLaneMap()">
+        <option value="">All states</option>
+      </select>
+    </label>
+    <span style="margin-left:auto;color:#5a6a7a" id="lm-summary"></span>
+  </div>
+  <svg id="lm-svg" viewBox="0 0 960 540" preserveAspectRatio="xMidYMid meet"></svg>
+  <div class="lm-side">
+    <div>
+      <div style="font-size:13px;font-weight:700;color:#c8cdd6;margin-bottom:10px;letter-spacing:0.4px">All Lanes</div>
+      <table class="lm-table">
+        <thead><tr>
+          <th>Lane</th>
+          <th style="text-align:right">Loads</th>
+          <th style="text-align:right">Carriers</th>
+          <th style="text-align:right">Avg Rate</th>
+          <th>Top Carrier</th>
+        </tr></thead>
+        <tbody id="lm-table-body"></tbody>
+      </table>
+    </div>
+    <div>
+      <div class="lm-side-card">
+        <div style="font-size:12px;font-weight:700;color:#c8cdd6;margin-bottom:10px">Legend</div>
+        <div id="lm-legend"></div>
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06);font-size:11px;color:#5a6a7a;line-height:1.5">
+          Each arc is a unique lane (origin state → destination state). Thickness scales with load count. Hover for details. Click a row in the table to highlight that lane on the map.
+        </div>
+      </div>
+      <div class="lm-side-card" style="margin-top:14px" id="lm-state-stats-card">
+        <div style="font-size:12px;font-weight:700;color:#c8cdd6;margin-bottom:8px">Top Origin States</div>
+        <div id="lm-origin-states" style="font-size:11px"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1764,16 +1839,20 @@ function formatParsedDate(d){
 }
 
 function switchView(view){
-  document.body.classList.remove('show-loads','show-insights');
+  document.body.classList.remove('show-loads','show-insights','show-lanemap');
   document.getElementById('tab-carriers').classList.toggle('active',view==='carriers');
   document.getElementById('tab-loads').classList.toggle('active',view==='loads');
   document.getElementById('tab-insights').classList.toggle('active',view==='insights');
+  var lmTab=document.getElementById('tab-lanemap');if(lmTab)lmTab.classList.toggle('active',view==='lanemap');
   if(view==='loads'){
     document.body.classList.add('show-loads');
     renderLoads();
   } else if(view==='insights'){
     document.body.classList.add('show-insights');
     renderInsights();
+  } else if(view==='lanemap'){
+    document.body.classList.add('show-lanemap');
+    renderLaneMap();
   } else {
     renderTable();
   }
@@ -2001,6 +2080,208 @@ function renderInsights(){
     +'</div>';
   }).join('')||'<div style="color:#5a6a7a;font-size:12px">No rate data yet — most lane history items don\'t have a rate field.</div>';
 }
+
+// ── LANE MAP — SVG US map with weighted lane arcs ───────────────────────────
+// State centers (lat, lon) for the contiguous US + DC. AK/HI are clipped.
+var US_STATE_CENTERS={
+  AL:[32.806,-86.791],AZ:[33.730,-111.431],AR:[34.969,-92.373],CA:[36.116,-119.682],
+  CO:[39.059,-105.311],CT:[41.597,-72.755],DE:[39.318,-75.507],DC:[38.897,-77.036],
+  FL:[27.766,-81.687],GA:[33.040,-83.643],ID:[44.240,-114.478],IL:[40.349,-88.986],
+  IN:[39.849,-86.258],IA:[42.011,-93.210],KS:[38.526,-96.726],KY:[37.668,-84.670],
+  LA:[31.169,-91.867],ME:[44.693,-69.382],MD:[39.064,-76.802],MA:[42.230,-71.530],
+  MI:[43.326,-84.536],MN:[45.694,-93.900],MS:[32.741,-89.678],MO:[38.456,-92.288],
+  MT:[46.921,-110.454],NE:[41.125,-98.268],NV:[38.313,-117.055],NH:[43.452,-71.564],
+  NJ:[40.298,-74.521],NM:[34.840,-106.248],NY:[42.165,-74.948],NC:[35.630,-79.806],
+  ND:[47.529,-99.784],OH:[40.388,-82.764],OK:[35.565,-96.928],OR:[44.572,-122.070],
+  PA:[40.590,-77.209],RI:[41.680,-71.512],SC:[33.856,-80.945],SD:[44.299,-99.439],
+  TN:[35.747,-86.692],TX:[31.054,-97.563],UT:[40.150,-111.862],VT:[44.045,-72.710],
+  VA:[37.769,-78.170],WA:[47.400,-121.490],WV:[38.491,-80.954],WI:[44.268,-89.616],
+  WY:[42.756,-107.302]
+};
+
+function _projectStateCoord(latLon, w, h){
+  // Equirectangular projection scaled to fit contiguous US.
+  // US bounds (excl AK/HI): lat 24.5–49.5, lon -125 to -66.5
+  var minLat=24.5,maxLat=49.5,minLon=-125,maxLon=-66.5;
+  var x=(latLon[1]-minLon)/(maxLon-minLon)*w;
+  var y=(maxLat-latLon[0])/(maxLat-minLat)*h;
+  return [x,y];
+}
+
+function _laneColor(mode, l, scales){
+  if(mode==='rate'){
+    if(!l.avgRate||!scales.maxRate)return '#5a6a7a';
+    var t=l.avgRate/scales.maxRate;
+    // Green (low) → yellow → orange → red (high)
+    if(t<0.33)return '#4acc7a';
+    if(t<0.66)return '#c0a040';
+    return '#e8412a';
+  }
+  if(mode==='recency'){
+    if(!l.lastDays&&l.lastDays!==0)return '#5a6a7a';
+    if(l.lastDays<=14)return '#4acc7a';
+    if(l.lastDays<=45)return '#4a9eff';
+    if(l.lastDays<=120)return '#c0a040';
+    return '#7a6a5a';
+  }
+  // count mode (default)
+  if(!scales.maxCount)return '#4a9eff';
+  var t2=l.count/scales.maxCount;
+  if(t2<0.25)return '#5a8acc';
+  if(t2<0.5) return '#4a9eff';
+  if(t2<0.75)return '#ff8a3a';
+  return '#e8412a';
+}
+
+function renderLaneMap(){
+  var W=960,H=540;
+  var svg=document.getElementById('lm-svg');
+  if(!svg)return;
+  var minLoads=parseInt(document.getElementById('lm-min-loads').value,10)||1;
+  var stateFilter=document.getElementById('lm-state-filter').value||'';
+  var colorMode=document.getElementById('lm-color-mode').value||'count';
+
+  // Aggregate: stateFrom-stateTo → {count, carriers Set, rates[], lastDate}
+  var lanes=new Map();
+  var stateOrigCount=new Map();
+  var nowMs=Date.now();
+  (carriers||[]).forEach(function(c){
+    (c.loadHistory||[]).forEach(function(h){
+      var os=extractStateFromStr(h.origin||(h.route||'').split(/->|→/)[0]||'');
+      var ds=extractStateFromStr(h.dest  ||(h.route||'').split(/->|→/)[1]||'');
+      if(!os||!ds||!US_STATE_CENTERS[os]||!US_STATE_CENTERS[ds])return;
+      stateOrigCount.set(os,(stateOrigCount.get(os)||0)+1);
+      var key=os+'|'+ds;
+      var prev=lanes.get(key)||{from:os,to:ds,count:0,carriers:new Set(),carrierTopCount:new Map(),rates:[],lastDate:''};
+      prev.count++;
+      prev.carriers.add(c.id);
+      var ctc=prev.carrierTopCount.get(c.id)||{name:c.company,count:0};
+      ctc.count++;prev.carrierTopCount.set(c.id,ctc);
+      var r=_insExtractRate(h);if(r>0)prev.rates.push(r);
+      var d=h.date||h.pickup_date||'';
+      if(d&&d.match(/^\d{4}-\d{2}-\d{2}/)&&(!prev.lastDate||d>prev.lastDate))prev.lastDate=d;
+      lanes.set(key,prev);
+    });
+  });
+
+  // Build lane array
+  var laneArr=[...lanes.values()].map(function(l){
+    var avgRate=l.rates.length?Math.round(l.rates.reduce(function(a,b){return a+b;},0)/l.rates.length):0;
+    var lastDays=null;
+    if(l.lastDate){var dt=new Date(l.lastDate);if(!isNaN(dt))lastDays=Math.floor((nowMs-dt)/86400000);}
+    var topC=[...l.carrierTopCount.values()].sort(function(a,b){return b.count-a.count;})[0];
+    return {from:l.from,to:l.to,count:l.count,carriers:l.carriers.size,avgRate:avgRate,lastDays:lastDays,topCarrier:topC?topC.name:'—'};
+  }).filter(function(l){
+    if(l.count<minLoads)return false;
+    if(stateFilter&&l.from!==stateFilter&&l.to!==stateFilter)return false;
+    return true;
+  }).sort(function(a,b){return b.count-a.count;});
+
+  var scales={
+    maxCount:Math.max(1,...laneArr.map(function(l){return l.count;})),
+    maxRate: Math.max(1,...laneArr.map(function(l){return l.avgRate;}))
+  };
+
+  // Populate state filter (once)
+  var sfSel=document.getElementById('lm-state-filter');
+  if(sfSel.options.length<=1){
+    var allStates=[...new Set([].concat([...lanes.values()].flatMap(function(l){return [l.from,l.to];})))].sort();
+    allStates.forEach(function(s){var o=document.createElement('option');o.value=s;o.textContent=s;sfSel.appendChild(o);});
+  }
+
+  // ── Build SVG ──
+  var parts=[];
+  // Background subtle US bounds rect
+  parts.push('<rect x="0" y="0" width="'+W+'" height="'+H+'" fill="#0a0e16"/>');
+
+  // State dots
+  Object.keys(US_STATE_CENTERS).forEach(function(s){
+    var p=_projectStateCoord(US_STATE_CENTERS[s],W,H);
+    parts.push('<circle class="lm-state-dot" cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="3.5"><title>'+s+'</title></circle>');
+    parts.push('<text class="lm-state-label" x="'+p[0].toFixed(1)+'" y="'+(p[1]-5).toFixed(1)+'">'+s+'</text>');
+  });
+
+  // Arcs (ordered by count ascending so heavy lanes draw on top)
+  var arcsSorted=laneArr.slice().sort(function(a,b){return a.count-b.count;});
+  arcsSorted.forEach(function(l){
+    var p1=_projectStateCoord(US_STATE_CENTERS[l.from],W,H);
+    var p2=_projectStateCoord(US_STATE_CENTERS[l.to],W,H);
+    var dx=p2[0]-p1[0],dy=p2[1]-p1[1];
+    var dist=Math.sqrt(dx*dx+dy*dy);
+    // Curved control point: perpendicular offset
+    var mx=(p1[0]+p2[0])/2,my=(p1[1]+p2[1])/2;
+    var nx=-dy/(dist||1),ny=dx/(dist||1);
+    var bow=Math.min(80,dist*0.25);
+    var cx=mx+nx*bow,cy=my+ny*bow;
+    var d='M '+p1[0].toFixed(1)+' '+p1[1].toFixed(1)+' Q '+cx.toFixed(1)+' '+cy.toFixed(1)+' '+p2[0].toFixed(1)+' '+p2[1].toFixed(1);
+    var stroke=Math.max(1,Math.min(7,1+l.count*0.6));
+    var color=_laneColor(colorMode,l,scales);
+    var opacity=Math.max(0.4,Math.min(1,0.3+l.count/scales.maxCount*0.7));
+    var title=l.from+' → '+l.to+' · '+l.count+' load'+(l.count>1?'s':'')+' · '+l.carriers+' carrier'+(l.carriers>1?'s':'')+(l.avgRate?' · $'+l.avgRate.toLocaleString():'')+(l.lastDays!==null?' · '+l.lastDays+'d ago':'');
+    parts.push('<path class="lm-arc" data-key="'+l.from+'-'+l.to+'" d="'+d+'" stroke="'+color+'" stroke-width="'+stroke.toFixed(1)+'" opacity="'+opacity.toFixed(2)+'"><title>'+title+'</title></path>');
+  });
+
+  svg.innerHTML=parts.join('');
+  svg.setAttribute('viewBox','0 0 '+W+' '+H);
+
+  // ── Table ──
+  var tbody=document.getElementById('lm-table-body');
+  tbody.innerHTML=laneArr.slice(0,40).map(function(l){
+    return '<tr data-key="'+l.from+'-'+l.to+'" onclick="_lmHighlight(this)">'
+      +'<td>'+l.from+' → '+l.to+'</td>'
+      +'<td style="text-align:right;font-family:DM Mono,monospace">'+l.count+'</td>'
+      +'<td style="text-align:right;font-family:DM Mono,monospace">'+l.carriers+'</td>'
+      +'<td style="text-align:right;font-family:DM Mono,monospace">'+(l.avgRate?'$'+l.avgRate.toLocaleString():'—')+'</td>'
+      +'<td style="font-size:11px;color:#8a9aaa;overflow:hidden;text-overflow:ellipsis;max-width:180px;white-space:nowrap">'+l.topCarrier+'</td>'
+    +'</tr>';
+  }).join('')||'<tr><td colspan="5" style="color:#5a6a7a;text-align:center;padding:20px">No lane data matches filters.</td></tr>';
+
+  // ── Top origin states ──
+  var origStates=[...stateOrigCount.entries()].sort(function(a,b){return b[1]-a[1];}).slice(0,10);
+  document.getElementById('lm-origin-states').innerHTML=origStates.map(function(e){
+    return '<div style="display:flex;justify-content:space-between;padding:3px 0"><span>'+e[0]+'</span><span style="color:#7a8a9a;font-family:DM Mono,monospace">'+e[1]+'</span></div>';
+  }).join('')||'<div style="color:#5a6a7a">No data.</div>';
+
+  // ── Legend ──
+  var legend=document.getElementById('lm-legend');
+  if(colorMode==='count'){
+    legend.innerHTML=
+      '<div class="lm-legend-row"><div class="lm-legend-swatch" style="background:#5a8acc"></div>Light traffic (1-25%)</div>'
+      +'<div class="lm-legend-row"><div class="lm-legend-swatch" style="background:#4a9eff"></div>Moderate (25-50%)</div>'
+      +'<div class="lm-legend-row"><div class="lm-legend-swatch" style="background:#ff8a3a"></div>Busy (50-75%)</div>'
+      +'<div class="lm-legend-row"><div class="lm-legend-swatch" style="background:#e8412a;height:5px"></div>Heaviest (75-100%)</div>';
+  } else if(colorMode==='rate'){
+    legend.innerHTML=
+      '<div class="lm-legend-row"><div class="lm-legend-swatch" style="background:#4acc7a"></div>Lower rate (bottom 1/3)</div>'
+      +'<div class="lm-legend-row"><div class="lm-legend-swatch" style="background:#c0a040"></div>Mid rate</div>'
+      +'<div class="lm-legend-row"><div class="lm-legend-swatch" style="background:#e8412a"></div>Higher rate (top 1/3)</div>'
+      +'<div class="lm-legend-row" style="color:#5a6a7a">Gray = no rate data</div>';
+  } else {
+    legend.innerHTML=
+      '<div class="lm-legend-row"><div class="lm-legend-swatch" style="background:#4acc7a"></div>Last 14 days</div>'
+      +'<div class="lm-legend-row"><div class="lm-legend-swatch" style="background:#4a9eff"></div>Last 45 days</div>'
+      +'<div class="lm-legend-row"><div class="lm-legend-swatch" style="background:#c0a040"></div>Last 120 days</div>'
+      +'<div class="lm-legend-row"><div class="lm-legend-swatch" style="background:#7a6a5a"></div>Older than 120d</div>';
+  }
+
+  // ── Summary ──
+  var totalLoads=laneArr.reduce(function(s,l){return s+l.count;},0);
+  document.getElementById('lm-summary').textContent=laneArr.length+' lanes · '+totalLoads+' loads';
+}
+
+function _lmHighlight(row){
+  var k=row.getAttribute('data-key');
+  document.querySelectorAll('#lm-svg .lm-arc').forEach(function(p){
+    p.style.opacity=p.getAttribute('data-key')===k?'1':'0.15';
+    p.style.strokeWidth=p.getAttribute('data-key')===k?'5':p.getAttribute('stroke-width');
+  });
+  document.querySelectorAll('#lm-table-body tr').forEach(function(tr){
+    tr.style.background=tr===row?'rgba(74,158,255,0.1)':'';
+  });
+}
+// extractStateFromStr is defined elsewhere in this file (around line 2893).
+// It returns the state code from a "City, ST" string or null if none found —
+// both null and '' are falsy so renderLaneMap's checks work either way.
 
 
 
