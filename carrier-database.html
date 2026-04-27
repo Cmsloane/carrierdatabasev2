@@ -84,6 +84,38 @@ body.show-loads .carrier-view{display:none}
 body.show-loads .loads-view{display:block}
 body.show-loads #loads-statsbar,body.show-loads #loads-filterbar,body.show-loads #loads-table-wrap{display:flex}
 body.show-loads #loads-table-wrap{display:block}
+.insights-view{display:none}
+body.show-insights #statsbar,body.show-insights #filterbar,body.show-insights #table-wrap,body.show-insights .loads-view,body.show-insights #loads-statsbar,body.show-insights #loads-filterbar,body.show-insights #loads-table-wrap{display:none}
+body.show-insights .insights-view{display:block}
+body.show-insights #insights-wrap{display:block}
+#insights-wrap{margin-top:140px;padding:24px;overflow:auto;height:calc(100vh - 140px);background:#0d1118}
+.ins-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:18px}
+.ins-card{background:#151b27;border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:16px}
+.ins-kpi-val{font-size:30px;font-weight:700;color:#e8412a;letter-spacing:-0.5px;font-family:'DM Mono',monospace;line-height:1.1}
+.ins-kpi-lbl{font-size:11px;color:#5a6a7a;text-transform:uppercase;letter-spacing:0.6px;margin-top:6px;font-weight:600}
+.ins-kpi-sub{font-size:11px;color:#7a8a9a;margin-top:4px}
+.ins-section-title{font-size:13px;font-weight:700;color:#c8cdd6;letter-spacing:0.4px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between}
+.ins-section-title .ins-section-sub{font-size:11px;color:#5a6a7a;font-weight:500}
+.ins-bars{display:flex;flex-direction:column;gap:8px}
+.ins-bar-row{display:grid;grid-template-columns:200px 1fr 60px;gap:10px;align-items:center;font-size:12px}
+.ins-bar-label{color:#c8cdd6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ins-bar-track{background:rgba(255,255,255,0.04);border-radius:3px;height:14px;position:relative;overflow:hidden}
+.ins-bar-fill{background:linear-gradient(90deg,#e8412a,#ff6b3a);height:100%;border-radius:3px;transition:width 0.4s}
+.ins-bar-val{font-family:'DM Mono',monospace;color:#9aaab8;font-size:12px;text-align:right}
+.ins-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:14px;margin-bottom:18px}
+.ins-list{display:flex;flex-direction:column;gap:6px}
+.ins-list-row{display:flex;justify-content:space-between;padding:6px 8px;background:rgba(255,255,255,0.02);border-radius:4px;font-size:12px}
+.ins-list-row:hover{background:rgba(255,255,255,0.05);cursor:pointer}
+.ins-list-name{color:#c8cdd6;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ins-list-val{color:#9aaab8;font-family:'DM Mono',monospace;margin-left:8px}
+.ins-donut-wrap{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.ins-donut-legend{display:flex;flex-direction:column;gap:5px;font-size:12px;flex:1;min-width:140px}
+.ins-donut-item{display:flex;align-items:center;gap:8px;color:#c8cdd6}
+.ins-donut-swatch{width:10px;height:10px;border-radius:2px;flex-shrink:0}
+.ins-donut-pct{margin-left:auto;color:#7a8a9a;font-family:'DM Mono',monospace;font-size:11px}
+.ins-heatmap{display:grid;grid-template-columns:repeat(12,1fr);gap:3px;margin-top:8px}
+.ins-heat-cell{aspect-ratio:1;border-radius:2px;background:rgba(255,255,255,0.04);position:relative;cursor:default}
+.ins-heat-labels{display:grid;grid-template-columns:repeat(12,1fr);gap:3px;margin-top:6px;font-size:9px;color:#5a6a7a;font-family:'DM Mono',monospace;text-align:center}
 
 /* ── Loads statsbar ──────────────────────────────────────────── */
 #loads-statsbar{display:none;background:#0f1628;border-bottom:1px solid rgba(255,255,255,0.06);padding:14px 28px;gap:28px;flex-wrap:wrap;position:fixed;top:56px;left:0;right:0;z-index:49}
@@ -483,6 +515,7 @@ body.show-loads #loads-table-wrap{display:block}
   <div id="tab-nav">
   <button class="tab-btn active" id="tab-carriers" onclick="switchView('carriers')">Carriers</button>
   <button class="tab-btn" id="tab-loads" onclick="switchView('loads')">Loads <span class="tab-count" id="tab-loads-count">0</span></button>
+  <button class="tab-btn" id="tab-insights" onclick="switchView('insights')">Insights</button>
 </div>
   <div class="sync-badge" id="live-sync-badge"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#e8412a" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg><span id="live-sync-label">Synced · Mar 19, 2026</span></div>
   <button id="carrier-sync-btn" onclick="triggerCarrierSync()" title="Scan Gmail for new Book Now Dispatch emails and add new carriers">⟳ <span class="btn-label">Carrier Sync</span></button>
@@ -640,6 +673,45 @@ body.show-loads #loads-table-wrap{display:block}
     <tbody id="loads-table-body"></tbody>
   </table>
 </div>
+
+<!-- Insights / Analytics View -->
+<div id="insights-wrap" class="insights-view">
+  <div class="ins-grid" id="ins-kpis"></div>
+  <div class="ins-card" style="margin-bottom:18px">
+    <div class="ins-section-title">Top Lanes <span class="ins-section-sub" id="ins-lanes-sub"></span></div>
+    <div class="ins-bars" id="ins-lanes"></div>
+  </div>
+  <div class="ins-cols">
+    <div class="ins-card">
+      <div class="ins-section-title">Equipment Mix <span class="ins-section-sub" id="ins-equip-sub"></span></div>
+      <div class="ins-donut-wrap"><div id="ins-equip-donut"></div><div class="ins-donut-legend" id="ins-equip-legend"></div></div>
+    </div>
+    <div class="ins-card">
+      <div class="ins-section-title">Top Customers <span class="ins-section-sub" id="ins-cust-sub"></span></div>
+      <div class="ins-list" id="ins-customers"></div>
+    </div>
+  </div>
+  <div class="ins-cols">
+    <div class="ins-card">
+      <div class="ins-section-title">Most Active Carriers <span class="ins-section-sub">by load count</span></div>
+      <div class="ins-list" id="ins-top-carriers"></div>
+    </div>
+    <div class="ins-card">
+      <div class="ins-section-title">Region Mix <span class="ins-section-sub" id="ins-region-sub"></span></div>
+      <div class="ins-donut-wrap"><div id="ins-region-donut"></div><div class="ins-donut-legend" id="ins-region-legend"></div></div>
+    </div>
+  </div>
+  <div class="ins-card" style="margin-bottom:18px">
+    <div class="ins-section-title">Activity — Last 12 Weeks <span class="ins-section-sub">load history dates</span></div>
+    <div class="ins-heatmap" id="ins-heatmap"></div>
+    <div class="ins-heat-labels" id="ins-heat-labels"></div>
+  </div>
+  <div class="ins-card" style="margin-bottom:18px">
+    <div class="ins-section-title">Rate Distribution <span class="ins-section-sub">avg rate by lane (top 12)</span></div>
+    <div class="ins-bars" id="ins-rates"></div>
+  </div>
+</div>
+
 <!-- Loads Detail Panel -->
 <div id="loads-detail-panel">
   <div class="panel-header">
@@ -1692,11 +1764,242 @@ function formatParsedDate(d){
 }
 
 function switchView(view){
-  const showLoads=view==='loads';
-  document.body.classList.toggle('show-loads',showLoads);
-  document.getElementById('tab-carriers').classList.toggle('active',!showLoads);
-  document.getElementById('tab-loads').classList.toggle('active',showLoads);
-  if(showLoads){renderLoads();} else {renderTable();}
+  document.body.classList.remove('show-loads','show-insights');
+  document.getElementById('tab-carriers').classList.toggle('active',view==='carriers');
+  document.getElementById('tab-loads').classList.toggle('active',view==='loads');
+  document.getElementById('tab-insights').classList.toggle('active',view==='insights');
+  if(view==='loads'){
+    document.body.classList.add('show-loads');
+    renderLoads();
+  } else if(view==='insights'){
+    document.body.classList.add('show-insights');
+    renderInsights();
+  } else {
+    renderTable();
+  }
+}
+
+// ── INSIGHTS / ANALYTICS ──────────────────────────────────────────────────
+// Pure-SVG charting (no CDN) so HTML fallback mode keeps working.
+function _insLanePair(h){
+  if(h.origin&&h.dest)return (h.origin+' → '+h.dest).replace(/\s+/g,' ').trim();
+  if(h.route)return String(h.route).split(/\s*[··]\s*/)[0].trim();
+  if(h.pickup_city&&h.delivery_city){
+    return (h.pickup_city+(h.pickup_state?', '+h.pickup_state:''))+' → '+(h.delivery_city+(h.delivery_state?', '+h.delivery_state:''));
+  }
+  return '';
+}
+
+function _insExtractRate(h){
+  // Try numeric rate first
+  if(typeof h.rate==='number'&&h.rate>0)return h.rate;
+  if(typeof h.rate==='string'){
+    var m=h.rate.match(/[\d,]+(\.\d+)?/);
+    if(m){var n=parseFloat(m[0].replace(/,/g,''));if(!isNaN(n)&&n>0)return n;}
+  }
+  // Pull from notes if present
+  if(h.notes){
+    var m2=h.notes.match(/Rate\s*\$?([\d,]+(\.\d+)?)/i);
+    if(m2){var n2=parseFloat(m2[1].replace(/,/g,''));if(!isNaN(n2)&&n2>0)return n2;}
+  }
+  return 0;
+}
+
+function _svgDonut(slices,size){
+  // slices: [{label, count, color}]; returns SVG string
+  size=size||140;
+  var total=slices.reduce(function(s,x){return s+x.count;},0);
+  if(!total)return '<svg width="'+size+'" height="'+size+'"></svg>';
+  var cx=size/2,cy=size/2,r=size/2-6,inner=r-22;
+  var startAngle=-Math.PI/2;
+  var paths=slices.map(function(s){
+    var ang=(s.count/total)*Math.PI*2;
+    var endAngle=startAngle+ang;
+    var x1=cx+r*Math.cos(startAngle),y1=cy+r*Math.sin(startAngle);
+    var x2=cx+r*Math.cos(endAngle),  y2=cy+r*Math.sin(endAngle);
+    var x3=cx+inner*Math.cos(endAngle),y3=cy+inner*Math.sin(endAngle);
+    var x4=cx+inner*Math.cos(startAngle),y4=cy+inner*Math.sin(startAngle);
+    var large=ang>Math.PI?1:0;
+    var d='M '+x1+','+y1+' A '+r+','+r+' 0 '+large+' 1 '+x2+','+y2
+      +' L '+x3+','+y3+' A '+inner+','+inner+' 0 '+large+' 0 '+x4+','+y4+' Z';
+    startAngle=endAngle;
+    return '<path d="'+d+'" fill="'+s.color+'" stroke="#0d1118" stroke-width="1"><title>'+s.label+': '+s.count+'</title></path>';
+  }).join('');
+  return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'">'+paths
+    +'<text x="'+cx+'" y="'+(cy-4)+'" text-anchor="middle" fill="#c8cdd6" font-size="20" font-weight="700" font-family="DM Mono,monospace">'+total+'</text>'
+    +'<text x="'+cx+'" y="'+(cy+12)+'" text-anchor="middle" fill="#5a6a7a" font-size="9" letter-spacing="0.5" font-weight="600">TOTAL</text>'
+    +'</svg>';
+}
+
+var INSIGHT_PALETTE=['#e8412a','#4a9eff','#4acc7a','#c0a040','#8a7aff','#5a9a7a','#e87aa0','#ff8a3a','#7aa8cc','#a06aaa','#5acc9a','#cc6a6a'];
+
+function renderInsights(){
+  var cs=carriers||[];
+
+  // ── 1. KPI cards ──
+  var totalCarriers=cs.length;
+  var withLanes=cs.filter(function(c){return c.preferredLanes;}).length;
+  var withEmail=cs.filter(function(c){return c.email;}).length;
+  var totalLoads=cs.reduce(function(s,c){return s+(c.loadHistory||[]).length;},0);
+  var nowMs=Date.now();
+  var active30=cs.filter(function(c){
+    var d=c.lastActive||c.lastContactedDate||'';
+    if(!d||!d.match(/^\d{4}-\d{2}-\d{2}/))return false;
+    return (nowMs-new Date(d).getTime())/86400000<=30;
+  }).length;
+  var active90=cs.filter(function(c){
+    var d=c.lastActive||c.lastContactedDate||'';
+    if(!d||!d.match(/^\d{4}-\d{2}-\d{2}/))return false;
+    return (nowMs-new Date(d).getTime())/86400000<=90;
+  }).length;
+  var preferred=cs.filter(function(c){return c.status==='Preferred';}).length;
+  var dnu=cs.filter(function(c){return c.status==='Do Not Use';}).length;
+  var kpis=[
+    {val:totalCarriers,lbl:'Total Carriers',sub:preferred+' Preferred · '+dnu+' DNU'},
+    {val:active30,lbl:'Active Last 30d',sub:active90+' active in 90d'},
+    {val:totalLoads,lbl:'Loads in History',sub:'avg '+(totalCarriers?(totalLoads/totalCarriers).toFixed(1):'0')+' per carrier'},
+    {val:withLanes,lbl:'With Lane Data',sub:withEmail+' with email contact'}
+  ];
+  document.getElementById('ins-kpis').innerHTML=kpis.map(function(k){
+    return '<div class="ins-card">'
+      +'<div class="ins-kpi-val">'+k.val+'</div>'
+      +'<div class="ins-kpi-lbl">'+k.lbl+'</div>'
+      +'<div class="ins-kpi-sub">'+k.sub+'</div>'
+    +'</div>';
+  }).join('');
+
+  // ── 2. Top lanes (by load count across all carriers) ──
+  var laneCounts=new Map();
+  cs.forEach(function(c){
+    (c.loadHistory||[]).forEach(function(h){
+      var lane=_insLanePair(h);
+      if(!lane||lane.length<5)return;
+      var prev=laneCounts.get(lane)||{count:0,carriers:new Set(),rates:[]};
+      prev.count++;
+      prev.carriers.add(c.id);
+      var r=_insExtractRate(h);
+      if(r>0)prev.rates.push(r);
+      laneCounts.set(lane,prev);
+    });
+  });
+  var laneArr=[...laneCounts.entries()].map(function(e){
+    var avgRate=e[1].rates.length?Math.round(e[1].rates.reduce(function(a,b){return a+b;},0)/e[1].rates.length):0;
+    return {lane:e[0],count:e[1].count,carriers:e[1].carriers.size,avgRate:avgRate};
+  }).sort(function(a,b){return b.count-a.count;}).slice(0,20);
+  var maxLaneCount=laneArr.length?laneArr[0].count:1;
+  document.getElementById('ins-lanes').innerHTML=laneArr.map(function(l){
+    var pct=Math.max(2,(l.count/maxLaneCount)*100);
+    return '<div class="ins-bar-row">'
+      +'<div class="ins-bar-label" title="'+l.lane+'">'+l.lane+'</div>'
+      +'<div class="ins-bar-track"><div class="ins-bar-fill" style="width:'+pct+'%"></div></div>'
+      +'<div class="ins-bar-val">'+l.count+' load'+(l.count>1?'s':'')+(l.carriers>1?' · '+l.carriers+' c':'')+'</div>'
+    +'</div>';
+  }).join('')||'<div style="color:#5a6a7a;font-size:12px">No lane data yet.</div>';
+  document.getElementById('ins-lanes-sub').textContent=laneCounts.size+' unique lanes tracked';
+
+  // ── 3. Equipment mix (donut) ──
+  var equipCounts=new Map();
+  cs.forEach(function(c){
+    var e=(c.equipment||'Unknown').trim();
+    equipCounts.set(e,(equipCounts.get(e)||0)+1);
+  });
+  var equipArr=[...equipCounts.entries()].sort(function(a,b){return b[1]-a[1];})
+    .map(function(e,i){return {label:e[0],count:e[1],color:INSIGHT_PALETTE[i%INSIGHT_PALETTE.length]};});
+  document.getElementById('ins-equip-donut').innerHTML=_svgDonut(equipArr);
+  var equipTotal=equipArr.reduce(function(s,x){return s+x.count;},0)||1;
+  document.getElementById('ins-equip-legend').innerHTML=equipArr.map(function(e){
+    return '<div class="ins-donut-item">'
+      +'<div class="ins-donut-swatch" style="background:'+e.color+'"></div>'
+      +'<span>'+e.label+'</span>'
+      +'<span class="ins-donut-pct">'+e.count+' · '+Math.round((e.count/equipTotal)*100)+'%</span>'
+    +'</div>';
+  }).join('');
+  document.getElementById('ins-equip-sub').textContent=equipArr.length+' types';
+
+  // ── 4. Top customers (by load count from loadHistory) ──
+  var custCounts=new Map();
+  cs.forEach(function(c){
+    (c.loadHistory||[]).forEach(function(h){
+      var cust=(h.customer||'').trim();
+      if(!cust||cust.length<3)return;
+      var prev=custCounts.get(cust)||{count:0,carriers:new Set()};
+      prev.count++;prev.carriers.add(c.id);
+      custCounts.set(cust,prev);
+    });
+  });
+  var custArr=[...custCounts.entries()].sort(function(a,b){return b[1].count-a[1].count;}).slice(0,15);
+  document.getElementById('ins-customers').innerHTML=custArr.map(function(e){
+    return '<div class="ins-list-row" title="'+e[1].carriers.size+' carriers"><span class="ins-list-name">'+e[0]+'</span><span class="ins-list-val">'+e[1].count+'</span></div>';
+  }).join('')||'<div style="color:#5a6a7a;font-size:12px">No customer data yet.</div>';
+  document.getElementById('ins-cust-sub').textContent=custCounts.size+' unique';
+
+  // ── 5. Most active carriers (by load count) ──
+  var topCarriers=cs.slice().sort(function(a,b){return ((b.loadHistory||[]).length)-((a.loadHistory||[]).length);}).slice(0,15);
+  document.getElementById('ins-top-carriers').innerHTML=topCarriers.filter(function(c){return (c.loadHistory||[]).length>0;}).map(function(c){
+    return '<div class="ins-list-row" onclick="switchView(\'carriers\');setTimeout(function(){selectCarrier('+c.id+');},50)">'
+      +'<span class="ins-list-name">'+c.company+'</span>'
+      +'<span class="ins-list-val">'+(c.loadHistory||[]).length+'</span>'
+    +'</div>';
+  }).join('')||'<div style="color:#5a6a7a;font-size:12px">No load history yet.</div>';
+
+  // ── 6. Region mix (donut) ──
+  var regCounts=new Map();
+  cs.forEach(function(c){
+    var r=(c.region||'Unknown').trim();
+    regCounts.set(r,(regCounts.get(r)||0)+1);
+  });
+  var regArr=[...regCounts.entries()].sort(function(a,b){return b[1]-a[1];})
+    .map(function(e,i){return {label:e[0],count:e[1],color:INSIGHT_PALETTE[i%INSIGHT_PALETTE.length]};});
+  document.getElementById('ins-region-donut').innerHTML=_svgDonut(regArr);
+  var regTotal=regArr.reduce(function(s,x){return s+x.count;},0)||1;
+  document.getElementById('ins-region-legend').innerHTML=regArr.map(function(r){
+    return '<div class="ins-donut-item">'
+      +'<div class="ins-donut-swatch" style="background:'+r.color+'"></div>'
+      +'<span>'+r.label+'</span>'
+      +'<span class="ins-donut-pct">'+r.count+' · '+Math.round((r.count/regTotal)*100)+'%</span>'
+    +'</div>';
+  }).join('');
+  document.getElementById('ins-region-sub').textContent=regArr.length+' regions';
+
+  // ── 7. Activity heatmap (last 12 weeks) ──
+  var weeksBack=12;
+  var weekBuckets=Array(weeksBack).fill(0);
+  var nowDate=new Date();
+  nowDate.setHours(0,0,0,0);
+  cs.forEach(function(c){
+    (c.loadHistory||[]).forEach(function(h){
+      var d=h.date||h.pickup_date||'';
+      if(!d||!d.match(/^\d{4}-\d{2}-\d{2}/))return;
+      var dt=new Date(d);
+      if(isNaN(dt))return;
+      var daysAgo=Math.floor((nowDate-dt)/86400000);
+      if(daysAgo<0||daysAgo>=weeksBack*7)return;
+      var wkIdx=weeksBack-1-Math.floor(daysAgo/7);
+      weekBuckets[wkIdx]++;
+    });
+  });
+  var maxWeek=Math.max(1,...weekBuckets);
+  document.getElementById('ins-heatmap').innerHTML=weekBuckets.map(function(n,i){
+    var intensity=n/maxWeek;
+    var bg=n===0?'rgba(255,255,255,0.04)':'rgba(232,65,42,'+(0.15+intensity*0.7).toFixed(2)+')';
+    var label=(weeksBack-i)+'w ago · '+n+' load'+(n!==1?'s':'');
+    return '<div class="ins-heat-cell" style="background:'+bg+'" title="'+label+'"></div>';
+  }).join('');
+  document.getElementById('ins-heat-labels').innerHTML=weekBuckets.map(function(_,i){
+    return '<div>'+(weeksBack-i)+'w</div>';
+  }).join('');
+
+  // ── 8. Rate distribution by lane (top 12 lanes by load count) ──
+  var ratedLanes=laneArr.filter(function(l){return l.avgRate>0;}).slice(0,12);
+  var maxRate=Math.max(1,...ratedLanes.map(function(l){return l.avgRate;}));
+  document.getElementById('ins-rates').innerHTML=ratedLanes.map(function(l){
+    var pct=Math.max(2,(l.avgRate/maxRate)*100);
+    return '<div class="ins-bar-row">'
+      +'<div class="ins-bar-label" title="'+l.lane+'">'+l.lane+'</div>'
+      +'<div class="ins-bar-track"><div class="ins-bar-fill" style="width:'+pct+'%;background:linear-gradient(90deg,#4acc7a,#7aff9a)"></div></div>'
+      +'<div class="ins-bar-val">$'+l.avgRate.toLocaleString()+'</div>'
+    +'</div>';
+  }).join('')||'<div style="color:#5a6a7a;font-size:12px">No rate data yet — most lane history items don\'t have a rate field.</div>';
 }
 
 
